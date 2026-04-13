@@ -136,7 +136,6 @@ const C = {
 const SK = { batches: "rl_batches", ref: "rl_ref", active: "rl_active" };
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
-type CurvePoint = { t; ref };
 
 const uid  = () => Math.random().toString(36).slice(2, 10);
 const fmtS = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
