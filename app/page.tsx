@@ -1,6 +1,53 @@
 "use client"
 // @ts-nocheck
 export const dynamic = 'force-dynamic'
+// ─── VUE LOGIN ────────────────────────────────────────────────────────────────
+import { supabase } from '../lib/supabaseClient'
+
+const VueLogin = ({ onLogin }) => {
+  const [email, setEmail] = useState("")
+  const [sent,  setSent]  = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const sendLink = async () => {
+    if (!email) return
+    setLoading(true)
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin }
+    })
+    setLoading(false)
+    if (!error) setSent(true)
+  }
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "40px 36px", maxWidth: 380, width: "100%" }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: C.gold, marginBottom: 6 }}>☕ RoastLog</div>
+        <div style={{ color: C.muted, fontSize: 12, marginBottom: 28 }}>Connexion par lien magique</div>
+        {!sent ? (
+          <>
+            <label style={LBL}>Adresse email</label>
+            <input value={email} onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && sendLink()}
+              placeholder="toi@email.com" type="email"
+              style={{ ...INP, marginBottom: 14 }} />
+            <button onClick={sendLink} disabled={loading || !email}
+              style={{ ...BTN(C.accent, "#fff"), width: "100%", opacity: loading ? 0.6 : 1 }}>
+              {loading ? "Envoi…" : "📧 Recevoir le lien de connexion"}
+            </button>
+          </>
+        ) : (
+          <div style={{ textAlign: "center", color: C.cream }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>📬</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Lien envoyé!</div>
+            <div style={{ color: C.muted, fontSize: 12 }}>Vérifie ton email <b style={{ color: C.cream }}>{email}</b> et clique le lien pour te connecter.</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 import { loadBatches, saveBatch, saveDegustation, loadRefCurve, saveRefCurve } from '../lib/roastService'
 import { useState, useRef, useEffect } from "react";
 import {
@@ -837,38 +884,47 @@ const VueParams = ({ curve, onSave }) => {
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view,    setView]    = useState("list");
-  const [batches, setBatches] = useState([]);
-  const [active,  setActive]  = useState(null);
-  const [entries, setEntries] = useState([]);
-  const [events,  setEvents]  = useState({});
-  const [curve,   setCurve]   = useState(PROFILS[0].points);
-  const [elapsed, setElapsed] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [detail,  setDetail]  = useState(null);
-  const [loaded,  setLoaded]  = useState(false);
+  const [view,    setView]    = useState("list")
+  const [batches, setBatches] = useState([])
+  const [active,  setActive]  = useState(null)
+  const [entries, setEntries] = useState([])
+  const [events,  setEvents]  = useState({})
+  const [curve,   setCurve]   = useState(PROFILS[0].points)
+  const [elapsed, setElapsed] = useState(0)
+  const [running, setRunning] = useState(false)
+  const [detail,  setDetail]  = useState(null)
+  const [loaded,  setLoaded]  = useState(false)
+  const [user,    setUser]    = useState(null)   // ← nouveau
 
-  const timerRef = useRef(null);
-  const startRef = useRef(null);
+  const timerRef = useRef(null)
+  const startRef = useRef(null)
 
   useEffect(() => {
-  (async () => {
-    const [batches, curve, active] = await Promise.all([
-      loadBatches().catch(() => []),
-      loadRefCurve().catch(() => null),
-      sGet(SK.active),  // session en cours reste locale
-    ])
-    if (batches?.length) setBatches(batches)
-    if (curve) setCurve(curve)
-    if (active?.batch) {
-      setActive(active.batch); setEntries(active.entries || [])
-      setEvents(active.events || {}); setElapsed(active.elapsed || 0)
-      setView("journal")
-    }
-    setLoaded(true)
-  })()
-  return () => clearInterval(timerRef.current)
-}, [])
+    // Écouter les changements de session (magic link, logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!user) return   // ← attendre d'être connecté
+    ;(async () => {
+      const [b, c, a] = await Promise.all([
+        loadBatches().catch(() => []),
+        loadRefCurve().catch(() => null),
+        sGet(SK.active),
+      ])
+      if (b?.length) setBatches(b)
+      if (c) setCurve(c)
+      if (a?.batch) {
+        setActive(a.batch); setEntries(a.entries || [])
+        setEvents(a.events || {}); setElapsed(a.elapsed || 0)
+        setView("journal")
+      }
+      setLoaded(true)
+    })()
+  }, [user])
 
   useEffect(() => {
     if (!loaded || !active) return;
@@ -918,6 +974,11 @@ export default function App() {
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
   );
 
+   if (!user) return <VueLogin />
+  if (!loaded) return (
+    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
+  )
+
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.cream, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
       <style>{`
@@ -935,10 +996,13 @@ export default function App() {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog</div>
         {[{ id: "list", label: "Batches", ico: "☕" }, { id: "settings", label: "Paramètres", ico: "⚙" }].map(n => (
-          <button key={n.id} onClick={() => setView(n.id)}
+          <><button key={n.id} onClick={() => setView(n.id)}
             style={{ background: view === n.id ? C.accent + "22" : "transparent", color: view === n.id ? C.gold : C.muted, border: `1px solid ${view === n.id ? C.accent : "transparent"}`, padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
             {n.ico} {n.label}
-          </button>
+          </button><button onClick={() => supabase.auth.signOut()}
+            style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+              Déconnexion
+            </button></>
         ))}
         {active && (
           <button onClick={() => setView("journal")}
