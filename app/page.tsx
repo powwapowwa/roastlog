@@ -1,5 +1,6 @@
 "use client"
 // @ts-nocheck
+export const dynamic = 'force-dynamic'
 import { loadBatches, saveBatch, saveDegustation, loadRefCurve, saveRefCurve } from '../lib/roastService'
 import { useState, useRef, useEffect } from "react";
 import {
