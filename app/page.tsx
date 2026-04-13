@@ -1,5 +1,6 @@
 "use client"
 // @ts-nocheck
+import { loadBatches, saveBatch, saveDegustation, loadRefCurve, saveRefCurve } from '../lib/roastService'
 import { useState, useRef, useEffect } from "react";
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
@@ -850,15 +851,23 @@ export default function App() {
   const startRef = useRef(null);
 
   useEffect(() => {
-    (async () => {
-      const [b, c, a] = await Promise.all([sGet(SK.batches), sGet(SK.ref), sGet(SK.active)]);
-      if (b) setBatches(b);
-      if (c) setCurve(c);
-      if (a?.batch) { setActive(a.batch); setEntries(a.entries || []); setEvents(a.events || {}); setElapsed(a.elapsed || 0); setView("journal"); }
-      setLoaded(true);
-    })();
-    return () => clearInterval(timerRef.current);
-  }, []);
+  (async () => {
+    const [batches, curve, active] = await Promise.all([
+      loadBatches().catch(() => []),
+      loadRefCurve().catch(() => null),
+      sGet(SK.active),  // session en cours reste locale
+    ])
+    if (batches?.length) setBatches(batches)
+    if (curve) setCurve(curve)
+    if (active?.batch) {
+      setActive(active.batch); setEntries(active.entries || [])
+      setEvents(active.events || {}); setElapsed(active.elapsed || 0)
+      setView("journal")
+    }
+    setLoaded(true)
+  })()
+  return () => clearInterval(timerRef.current)
+}, [])
 
   useEffect(() => {
     if (!loaded || !active) return;
@@ -885,19 +894,24 @@ export default function App() {
   const handleFin = () => { pauseTimer(); setView("fin"); };
 
   const handleSave = async finData => {
-    const done = { ...active, ...finData, readings: entries, events, duree_total: elapsed, statut: "termine" };
-    const next  = [...batches.filter(b => b.id !== active.id), done];
-    setBatches(next); await sSet(SK.batches, next); await sDel(SK.active);
-    setActive(null); setEntries([]); setEvents({}); setElapsed(0); setRunning(false); setView("list");
-  };
-
+    const done = { ...active, ...finData, readings: entries, events, duree_total: elapsed, statut: "termine" }
+    await saveBatch(done, entries, events)
+    const next = await loadBatches()
+    setBatches(next)
+    await sDel(SK.active)
+    setActive(null); setEntries([]); setEvents({}); setElapsed(0); setRunning(false); setView("list")
+  }
   const handleSaveDegustation = async (batchId, deg) => {
-    const next = batches.map(b => b.id === batchId ? { ...b, degustation: deg } : b);
-    setBatches(next); await sSet(SK.batches, next);
-    setDetail(prev => prev?.id === batchId ? { ...prev, degustation: deg } : prev);
-  };
+    await saveDegustation(batchId, deg)
+    const next = batches.map(b => b.id === batchId ? { ...b, degustation: deg } : b)
+    setBatches(next)
+    setDetail(prev => prev?.id === batchId ? { ...prev, degustation: deg } : prev)
+  }
 
-  const handleSaveCurve = async c => { setCurve(c); await sSet(SK.ref, c); };
+  const handleSaveCurve = async c => {
+  setCurve(c)
+  await saveRefCurve(c)
+}
 
   if (!loaded) return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
