@@ -4,46 +4,42 @@ export const dynamic = 'force-dynamic'
 // ─── VUE LOGIN ────────────────────────────────────────────────────────────────
 import { supabase } from '../lib/supabaseClient'
 
-const VueLogin = ({ onLogin }) => {
-  const [email, setEmail] = useState("")
-  const [sent,  setSent]  = useState(false)
-  const [loading, setLoading] = useState(false)
+const VueLogin = () => {
+  const [email,    setEmail]    = useState("")
+  const [password, setPassword] = useState("")
+  const [error,    setError]    = useState("")
+  const [loading,  setLoading]  = useState(false)
 
-  const sendLink = async () => {
-    if (!email) return
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin }
-    })
+  const login = async () => {
+    if (!email || !password) return
+    setLoading(true); setError("")
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
-    if (!error) setSent(true)
+    if (error) setError("Email ou mot de passe incorrect")
   }
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "40px 36px", maxWidth: 380, width: "100%" }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: C.gold, marginBottom: 6 }}>☕ RoastLog</div>
-        <div style={{ color: C.muted, fontSize: 12, marginBottom: 28 }}>Connexion par lien magique</div>
-        {!sent ? (
-          <>
-            <label style={LBL}>Adresse email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && sendLink()}
-              placeholder="toi@email.com" type="email"
-              style={{ ...INP, marginBottom: 14 }} />
-            <button onClick={sendLink} disabled={loading || !email}
-              style={{ ...BTN(C.accent, "#fff"), width: "100%", opacity: loading ? 0.6 : 1 }}>
-              {loading ? "Envoi…" : "📧 Recevoir le lien de connexion"}
-            </button>
-          </>
-        ) : (
-          <div style={{ textAlign: "center", color: C.cream }}>
-            <div style={{ fontSize: 36, marginBottom: 12 }}>📬</div>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Lien envoyé!</div>
-            <div style={{ color: C.muted, fontSize: 12 }}>Vérifie ton email <b style={{ color: C.cream }}>{email}</b> et clique le lien pour te connecter.</div>
-          </div>
-        )}
+        <div style={{ color: C.muted, fontSize: 12, marginBottom: 28 }}>Connexion</div>
+
+        <label style={LBL}>Email</label>
+        <input value={email} onChange={e => setEmail(e.target.value)} type="email"
+          placeholder="toi@email.com" style={{ ...INP, marginBottom: 12 }} />
+
+        <label style={LBL}>Mot de passe</label>
+        <input value={password} onChange={e => setPassword(e.target.value)} type="password"
+          placeholder="••••••••"
+          onKeyDown={e => e.key === "Enter" && login()}
+          style={{ ...INP, marginBottom: 16 }} />
+
+        {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>{error}</div>}
+
+        <button onClick={login} disabled={loading || !email || !password}
+          style={{ ...BTN(C.accent, "#fff"), width: "100%", opacity: loading ? 0.6 : 1 }}>
+          {loading ? "Connexion…" : "Se connecter"}
+        </button>
       </div>
     </div>
   )
