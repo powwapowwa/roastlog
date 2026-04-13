@@ -970,10 +970,6 @@ export default function App() {
   await saveRefCurve(c)
 }
 
-  if (!loaded) return (
-    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
-  );
-
    if (!user) return <VueLogin />
   if (!loaded) return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
@@ -996,13 +992,10 @@ export default function App() {
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog</div>
         {[{ id: "list", label: "Batches", ico: "☕" }, { id: "settings", label: "Paramètres", ico: "⚙" }].map(n => (
-          <><button key={n.id} onClick={() => setView(n.id)}
+          <button key={n.id} onClick={() => setView(n.id)}
             style={{ background: view === n.id ? C.accent + "22" : "transparent", color: view === n.id ? C.gold : C.muted, border: `1px solid ${view === n.id ? C.accent : "transparent"}`, padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
             {n.ico} {n.label}
-          </button><button onClick={() => supabase.auth.signOut()}
-            style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
-              Déconnexion
-            </button></>
+          </button>
         ))}
         {active && (
           <button onClick={() => setView("journal")}
@@ -1010,6 +1003,10 @@ export default function App() {
             🔥 {active.batchNum} {running ? `· ${fmtS(elapsed)}` : "· En pause"}
           </button>
         )}
+        <button onClick={() => supabase.auth.signOut()}
+          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+          Déconnexion
+        </button>
       </div>
 
       {view === "list"    && <VueListe    batches={batches} onNew={() => setView("create")} onOpen={handleOpen} />}
