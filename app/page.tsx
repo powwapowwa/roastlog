@@ -986,7 +986,9 @@ export default function App() {
 
       {/* NAVBAR */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog</div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog
+           <span style={{ color: C.muted, fontSize: 13, fontWeight: 400, marginLeft: 10 }}>· Le Brûleur de l'est</span>
+          </div>
         {[{ id: "list", label: "Batches", ico: "☕" }, { id: "settings", label: "Paramètres", ico: "⚙" }].map(n => (
           <button key={n.id} onClick={() => setView(n.id)}
             style={{ background: view === n.id ? C.accent + "22" : "transparent", color: view === n.id ? C.gold : C.muted, border: `1px solid ${view === n.id ? C.accent : "transparent"}`, padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
