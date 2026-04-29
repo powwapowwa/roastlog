@@ -1,148 +1,108 @@
 "use client"
 // @ts-nocheck
-export const dynamic = 'force-dynamic'
-// ─── VUE LOGIN ────────────────────────────────────────────────────────────────
-import { supabase } from '../lib/supabaseClient'
-
-const VueLogin = () => {
-  const [email,    setEmail]    = useState("")
-  const [password, setPassword] = useState("")
-  const [error,    setError]    = useState("")
-  const [loading,  setLoading]  = useState(false)
-
-  const login = async () => {
-    if (!email || !password) return
-    setLoading(true); setError("")
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
-    if (error) setError("Email ou mot de passe incorrect")
-  }
-
-  return (
-    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "40px 36px", maxWidth: 380, width: "100%" }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: C.gold, marginBottom: 6 }}>☕ RoastLog</div>
-        <div style={{ color: C.muted, fontSize: 12, marginBottom: 28 }}>Connexion</div>
-
-        <label style={LBL}>Email</label>
-        <input value={email} onChange={e => setEmail(e.target.value)} type="email"
-          placeholder="toi@email.com" style={{ ...INP, marginBottom: 12 }} />
-
-        <label style={LBL}>Mot de passe</label>
-        <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-          placeholder="••••••••"
-          onKeyDown={e => e.key === "Enter" && login()}
-          style={{ ...INP, marginBottom: 16 }} />
-
-        {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>{error}</div>}
-
-        <button onClick={login} disabled={loading || !email || !password}
-          style={{ ...BTN(C.accent, "#fff"), width: "100%", opacity: loading ? 0.6 : 1 }}>
-          {loading ? "Connexion…" : "Se connecter"}
-        </button>
-      </div>
-    </div>
-  )
-}
-import { loadBatches, saveBatch, saveDegustation, loadRefCurve, saveRefCurve } from '../lib/roastService'
 import { useState, useRef, useEffect } from "react";
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 
-// ─── 6 PROFILS PRÉDÉFINIS (ET en °F) ─────────────────────────────────────────
+// ─── 6 PROFILS SR800 + TUBE D'EXTENSION (ET en °F) ───────────────────────────
+// Torréfacteur à air chaud. Avec tube d'extension : montée plus lente,
+// températures ET plus basses. Charge ~290°F, 1er crack 370–420°F selon niveau.
 const PROFILS = [
   {
-    id: "generique", label: "Générique Medium", emoji: "☕",
-    desc: "Profil polyvalent, développement équilibré ~12 min",
-    couleur_cible: "city",
-    points: [
-      { t: 0,    ref: 419 }, { t: 0.5,  ref: 383 }, { t: 1.0,  ref: 356 },
-      { t: 1.5,  ref: 354 }, { t: 2.0,  ref: 361 }, { t: 2.5,  ref: 376 },
-      { t: 3.0,  ref: 390 }, { t: 3.5,  ref: 405 }, { t: 4.0,  ref: 417 },
-      { t: 4.5,  ref: 426 }, { t: 5.0,  ref: 435 }, { t: 5.5,  ref: 442 },
-      { t: 6.0,  ref: 450 }, { t: 6.5,  ref: 455 }, { t: 7.0,  ref: 460 },
-      { t: 7.5,  ref: 466 }, { t: 8.0,  ref: 469 }, { t: 8.5,  ref: 473 },
-      { t: 9.0,  ref: 477 }, { t: 9.5,  ref: 480 }, { t: 10.0, ref: 475 },
-      { t: 10.5, ref: 468 }, { t: 11.0, ref: 460 }, { t: 11.5, ref: 453 },
-      { t: 12.0, ref: 446 },
-    ],
-  },
-  {
-    id: "espresso_cinnamon", label: "Espresso – Cinnamon", emoji: "🌿",
-    desc: "Très légère, acidité vive, fruité intense, ~8.5 min",
+    id: "sr800_cinnamon", label: "SR800 – Cinnamon", emoji: "🌿",
+    desc: "Très légère, acidité vive, fruité intense, ~8 min",
     couleur_cible: "cinnamon",
     points: [
-      { t: 0,   ref: 430 }, { t: 0.5, ref: 398 }, { t: 1.0, ref: 368 },
-      { t: 1.5, ref: 360 }, { t: 2.0, ref: 364 }, { t: 2.5, ref: 374 },
-      { t: 3.0, ref: 384 }, { t: 3.5, ref: 394 }, { t: 4.0, ref: 402 },
-      { t: 4.5, ref: 410 }, { t: 5.0, ref: 418 }, { t: 5.5, ref: 424 },
-      { t: 6.0, ref: 429 }, { t: 6.5, ref: 433 }, { t: 7.0, ref: 436 },
-      { t: 7.5, ref: 437 }, { t: 8.0, ref: 435 }, { t: 8.5, ref: 431 },
+      { t: 0,   ref: 290 }, { t: 0.5, ref: 268 }, { t: 1.0, ref: 255 },
+      { t: 1.5, ref: 258 }, { t: 2.0, ref: 268 }, { t: 2.5, ref: 281 },
+      { t: 3.0, ref: 295 }, { t: 3.5, ref: 308 }, { t: 4.0, ref: 320 },
+      { t: 4.5, ref: 331 }, { t: 5.0, ref: 341 }, { t: 5.5, ref: 350 },
+      { t: 6.0, ref: 358 }, { t: 6.5, ref: 365 }, { t: 7.0, ref: 371 },
+      { t: 7.5, ref: 374 }, { t: 8.0, ref: 372 },
     ],
   },
   {
-    id: "espresso_light", label: "Espresso – Light", emoji: "🌤",
+    id: "sr800_light", label: "SR800 – Light", emoji: "🌤",
     desc: "Floraux et agrumes, acidité marquée, ~9.5 min",
     couleur_cible: "light",
     points: [
-      { t: 0,   ref: 425 }, { t: 0.5, ref: 392 }, { t: 1.0, ref: 363 },
-      { t: 1.5, ref: 356 }, { t: 2.0, ref: 361 }, { t: 2.5, ref: 371 },
-      { t: 3.0, ref: 381 }, { t: 3.5, ref: 391 }, { t: 4.0, ref: 400 },
-      { t: 4.5, ref: 408 }, { t: 5.0, ref: 416 }, { t: 5.5, ref: 422 },
-      { t: 6.0, ref: 428 }, { t: 6.5, ref: 433 }, { t: 7.0, ref: 438 },
-      { t: 7.5, ref: 442 }, { t: 8.0, ref: 446 }, { t: 8.5, ref: 449 },
-      { t: 9.0, ref: 451 }, { t: 9.5, ref: 449 },
+      { t: 0,   ref: 290 }, { t: 0.5, ref: 266 }, { t: 1.0, ref: 252 },
+      { t: 1.5, ref: 255 }, { t: 2.0, ref: 265 }, { t: 2.5, ref: 278 },
+      { t: 3.0, ref: 291 }, { t: 3.5, ref: 304 }, { t: 4.0, ref: 316 },
+      { t: 4.5, ref: 327 }, { t: 5.0, ref: 337 }, { t: 5.5, ref: 346 },
+      { t: 6.0, ref: 354 }, { t: 6.5, ref: 362 }, { t: 7.0, ref: 368 },
+      { t: 7.5, ref: 374 }, { t: 8.0, ref: 379 }, { t: 8.5, ref: 383 },
+      { t: 9.0, ref: 386 }, { t: 9.5, ref: 384 },
     ],
   },
   {
-    id: "espresso_city", label: "Espresso – City", emoji: "☀️",
-    desc: "Équilibrée, caramel léger, acidité modérée, ~10.5 min",
+    id: "sr800_city", label: "SR800 – City", emoji: "☀️",
+    desc: "Équilibrée, caramel léger, acidité modérée, ~11 min",
     couleur_cible: "city",
     points: [
-      { t: 0,    ref: 422 }, { t: 0.5,  ref: 388 }, { t: 1.0,  ref: 360 },
-      { t: 1.5,  ref: 353 }, { t: 2.0,  ref: 358 }, { t: 2.5,  ref: 368 },
-      { t: 3.0,  ref: 378 }, { t: 3.5,  ref: 389 }, { t: 4.0,  ref: 398 },
-      { t: 4.5,  ref: 407 }, { t: 5.0,  ref: 414 }, { t: 5.5,  ref: 421 },
-      { t: 6.0,  ref: 427 }, { t: 6.5,  ref: 432 }, { t: 7.0,  ref: 437 },
-      { t: 7.5,  ref: 441 }, { t: 8.0,  ref: 445 }, { t: 8.5,  ref: 449 },
-      { t: 9.0,  ref: 452 }, { t: 9.5,  ref: 455 }, { t: 10.0, ref: 457 },
-      { t: 10.5, ref: 455 },
+      { t: 0,    ref: 290 }, { t: 0.5,  ref: 265 }, { t: 1.0,  ref: 250 },
+      { t: 1.5,  ref: 253 }, { t: 2.0,  ref: 263 }, { t: 2.5,  ref: 276 },
+      { t: 3.0,  ref: 289 }, { t: 3.5,  ref: 302 }, { t: 4.0,  ref: 314 },
+      { t: 4.5,  ref: 325 }, { t: 5.0,  ref: 335 }, { t: 5.5,  ref: 344 },
+      { t: 6.0,  ref: 352 }, { t: 6.5,  ref: 360 }, { t: 7.0,  ref: 367 },
+      { t: 7.5,  ref: 373 }, { t: 8.0,  ref: 378 }, { t: 8.5,  ref: 383 },
+      { t: 9.0,  ref: 387 }, { t: 9.5,  ref: 391 }, { t: 10.0, ref: 394 },
+      { t: 10.5, ref: 396 }, { t: 11.0, ref: 394 },
     ],
   },
   {
-    id: "espresso_full_city", label: "Espresso – Full City", emoji: "🌆",
-    desc: "Chocolaté, corps plein, 1er crack développé, ~11.5 min",
+    id: "sr800_city_plus", label: "SR800 – City+", emoji: "🌇",
+    desc: "Développée, sucrosité, acidité douce, ~12 min",
+    couleur_cible: "city_plus",
+    points: [
+      { t: 0,    ref: 290 }, { t: 0.5,  ref: 264 }, { t: 1.0,  ref: 249 },
+      { t: 1.5,  ref: 252 }, { t: 2.0,  ref: 262 }, { t: 2.5,  ref: 275 },
+      { t: 3.0,  ref: 288 }, { t: 3.5,  ref: 301 }, { t: 4.0,  ref: 313 },
+      { t: 4.5,  ref: 324 }, { t: 5.0,  ref: 334 }, { t: 5.5,  ref: 343 },
+      { t: 6.0,  ref: 351 }, { t: 6.5,  ref: 359 }, { t: 7.0,  ref: 366 },
+      { t: 7.5,  ref: 372 }, { t: 8.0,  ref: 378 }, { t: 8.5,  ref: 383 },
+      { t: 9.0,  ref: 387 }, { t: 9.5,  ref: 391 }, { t: 10.0, ref: 395 },
+      { t: 10.5, ref: 399 }, { t: 11.0, ref: 402 }, { t: 11.5, ref: 405 },
+      { t: 12.0, ref: 403 },
+    ],
+  },
+  {
+    id: "sr800_full_city", label: "SR800 – Full City", emoji: "🌆",
+    desc: "Chocolaté, corps plein, 2e crack approché, ~13 min",
     couleur_cible: "full_city",
     points: [
-      { t: 0,    ref: 420 }, { t: 0.5,  ref: 386 }, { t: 1.0,  ref: 358 },
-      { t: 1.5,  ref: 351 }, { t: 2.0,  ref: 356 }, { t: 2.5,  ref: 367 },
-      { t: 3.0,  ref: 377 }, { t: 3.5,  ref: 387 }, { t: 4.0,  ref: 396 },
-      { t: 4.5,  ref: 405 }, { t: 5.0,  ref: 413 }, { t: 5.5,  ref: 420 },
-      { t: 6.0,  ref: 426 }, { t: 6.5,  ref: 432 }, { t: 7.0,  ref: 437 },
-      { t: 7.5,  ref: 441 }, { t: 8.0,  ref: 446 }, { t: 8.5,  ref: 450 },
-      { t: 9.0,  ref: 453 }, { t: 9.5,  ref: 457 }, { t: 10.0, ref: 460 },
-      { t: 10.5, ref: 463 }, { t: 11.0, ref: 465 }, { t: 11.5, ref: 463 },
+      { t: 0,    ref: 290 }, { t: 0.5,  ref: 263 }, { t: 1.0,  ref: 248 },
+      { t: 1.5,  ref: 251 }, { t: 2.0,  ref: 261 }, { t: 2.5,  ref: 274 },
+      { t: 3.0,  ref: 287 }, { t: 3.5,  ref: 300 }, { t: 4.0,  ref: 312 },
+      { t: 4.5,  ref: 323 }, { t: 5.0,  ref: 333 }, { t: 5.5,  ref: 342 },
+      { t: 6.0,  ref: 350 }, { t: 6.5,  ref: 358 }, { t: 7.0,  ref: 365 },
+      { t: 7.5,  ref: 371 }, { t: 8.0,  ref: 377 }, { t: 8.5,  ref: 382 },
+      { t: 9.0,  ref: 387 }, { t: 9.5,  ref: 391 }, { t: 10.0, ref: 395 },
+      { t: 10.5, ref: 399 }, { t: 11.0, ref: 403 }, { t: 11.5, ref: 407 },
+      { t: 12.0, ref: 410 }, { t: 12.5, ref: 413 }, { t: 13.0, ref: 411 },
     ],
   },
   {
-    id: "espresso_dark", label: "Espresso – Dark", emoji: "🌑",
-    desc: "Intense, fumé, corps lourd, développement 2e crack, ~13 min",
+    id: "sr800_dark", label: "SR800 – Dark", emoji: "🌑",
+    desc: "Intense, fumé, 2e crack, corps lourd, ~14 min",
     couleur_cible: "dark",
     points: [
-      { t: 0,    ref: 418 }, { t: 0.5,  ref: 384 }, { t: 1.0,  ref: 356 },
-      { t: 1.5,  ref: 349 }, { t: 2.0,  ref: 354 }, { t: 2.5,  ref: 365 },
-      { t: 3.0,  ref: 375 }, { t: 3.5,  ref: 385 }, { t: 4.0,  ref: 394 },
-      { t: 4.5,  ref: 403 }, { t: 5.0,  ref: 411 }, { t: 5.5,  ref: 418 },
-      { t: 6.0,  ref: 425 }, { t: 6.5,  ref: 431 }, { t: 7.0,  ref: 436 },
-      { t: 7.5,  ref: 441 }, { t: 8.0,  ref: 445 }, { t: 8.5,  ref: 449 },
-      { t: 9.0,  ref: 453 }, { t: 9.5,  ref: 457 }, { t: 10.0, ref: 461 },
-      { t: 10.5, ref: 465 }, { t: 11.0, ref: 468 }, { t: 11.5, ref: 471 },
-      { t: 12.0, ref: 473 }, { t: 12.5, ref: 471 }, { t: 13.0, ref: 467 },
+      { t: 0,    ref: 290 }, { t: 0.5,  ref: 262 }, { t: 1.0,  ref: 247 },
+      { t: 1.5,  ref: 250 }, { t: 2.0,  ref: 260 }, { t: 2.5,  ref: 273 },
+      { t: 3.0,  ref: 286 }, { t: 3.5,  ref: 299 }, { t: 4.0,  ref: 311 },
+      { t: 4.5,  ref: 322 }, { t: 5.0,  ref: 332 }, { t: 5.5,  ref: 341 },
+      { t: 6.0,  ref: 349 }, { t: 6.5,  ref: 357 }, { t: 7.0,  ref: 364 },
+      { t: 7.5,  ref: 370 }, { t: 8.0,  ref: 376 }, { t: 8.5,  ref: 381 },
+      { t: 9.0,  ref: 386 }, { t: 9.5,  ref: 390 }, { t: 10.0, ref: 394 },
+      { t: 10.5, ref: 398 }, { t: 11.0, ref: 402 }, { t: 11.5, ref: 406 },
+      { t: 12.0, ref: 410 }, { t: 12.5, ref: 414 }, { t: 13.0, ref: 418 },
+      { t: 13.5, ref: 421 }, { t: 14.0, ref: 419 },
     ],
   },
 ];
+
 
 const TOL = 15;
 
@@ -261,7 +221,7 @@ const RoastChart = ({ entries = [], events = {}, curve, height = 260 }) => {
         <XAxis dataKey="t" type="number" domain={[0, maxT]} tickCount={Math.min(maxT + 1, 16)}
           tickFormatter={fmtM} tick={{ fill: C.muted, fontSize: 10 }} stroke={C.border}
           label={{ value: "mm:ss", position: "insideBottom", offset: -10, fill: C.muted, fontSize: 10 }} />
-        <YAxis domain={[320, 530]} tickFormatter={v => `${v}°`}
+        <YAxis domain={[220, 450]} tickFormatter={v => `${v}°`}
           tick={{ fill: C.muted, fontSize: 10 }} stroke={C.border} />
         <Tooltip content={<ChartTooltip entries={entries} curve={curve} />} />
         <Area data={refData} dataKey="hi" type="monotone" stroke="none" fill={C.gold} fillOpacity={0.15} legendType="none" />
@@ -663,7 +623,8 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
 };
 
 // ─── VUE DÉTAIL + DÉGUSTATION ─────────────────────────────────────────────────
-const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
+const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatchInfo, curve }) => {
+  const [batch,   setBatch]   = useState(initialBatch);
   const entries = batch.readings || [];
   const events  = batch.events  || {};
   const coul    = COULEURS.find(c => c.id === batch.couleur);
@@ -671,45 +632,99 @@ const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
   const avg     = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : "—";
   const perte   = batch.poids_final && batch.poids_vert ? ((batch.poids_vert - batch.poids_final) / batch.poids_vert * 100).toFixed(1) : null;
 
-  const [editDeg, setEditDeg] = useState(false);
-  const [deg,     setDeg]     = useState(batch.degustation || { note: null, aromes: "", saveur: "", corps: "", finale: "", notes: "" });
-  const [saved,   setSaved]   = useState(false);
+  const [editDeg,  setEditDeg]  = useState(false);
+  const [editInfo, setEditInfo] = useState(false);
+  const [deg,      setDeg]      = useState(batch.degustation || { note: null, aromes: "", saveur: "", corps: "", finale: "", notes: "" });
+  const [infoF,    setInfoF]    = useState({ poids_final: batch.poids_final || "", couleur: batch.couleur || "", notes_fin: batch.notes_fin || "" });
+  const [saved,    setSaved]    = useState("");
 
   const hasDeg = batch.degustation && (batch.degustation.note || batch.degustation.aromes || batch.degustation.notes);
 
   const saveDeg = () => {
     onSaveDegustation(batch.id, deg);
-    setSaved(true); setEditDeg(false);
-    setTimeout(() => setSaved(false), 2000);
+    setBatch(p => ({ ...p, degustation: deg }));
+    setSaved("deg"); setEditDeg(false);
+    setTimeout(() => setSaved(""), 2000);
   };
 
+  const saveInfo = async () => {
+    const updated = { ...batch, poids_final: infoF.poids_final ? parseFloat(infoF.poids_final) : null, couleur: infoF.couleur, notes_fin: infoF.notes_fin };
+    await onSaveBatchInfo(updated);
+    setBatch(updated);
+    setSaved("info"); setEditInfo(false);
+    setTimeout(() => setSaved(""), 2000);
+  };
+
+  const coulEdit = COULEURS.find(c => c.id === (editInfo ? infoF.couleur : batch.couleur));
+  const perteEdit = infoF.poids_final && batch.poids_vert ? ((batch.poids_vert - parseFloat(infoF.poids_final)) / batch.poids_vert * 100).toFixed(1) : null;
+
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 860, margin: "0 auto" }}>
+    <div style={{ padding: "20px 24px", maxWidth: 900, margin: "0 auto" }}>
+      {/* HEADER */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
         <button onClick={onBack} style={{ ...BTN("transparent", C.muted), border: `1px solid ${C.border}`, fontWeight: 400, padding: "6px 12px", fontSize: 12 }}>← Liste</button>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, color: C.gold }}>{batch.batchNum}</span>
             {coul && <span style={{ background: coul.bg, color: coul.fg, padding: "2px 10px", borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{coul.label}</span>}
-            {saved && <span style={{ color: C.green, fontSize: 11 }}>✓ Dégustation sauvegardée</span>}
+            {saved === "deg"  && <span style={{ color: C.green, fontSize: 11 }}>✓ Dégustation sauvegardée</span>}
+            {saved === "info" && <span style={{ color: C.green, fontSize: 11 }}>✓ Infos mises à jour</span>}
           </div>
           {batch.origine && <div style={{ color: C.cream, fontSize: 13, marginTop: 2 }}>{batch.origine}</div>}
         </div>
+        <button onClick={() => window.print()} style={{ ...BTN(C.surface2, C.muted), border: `1px solid ${C.border}`, padding: "6px 12px", fontSize: 11 }}>🖨 Imprimer</button>
         {batch.degustation?.note && <StarRating value={batch.degustation.note} readOnly />}
       </div>
 
+      {/* GRAPHIQUE */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 8px 10px 4px", marginBottom: 14 }}>
         <RoastChart entries={entries} events={events} curve={curve} height={220} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        {/* INFOS avec bouton modifier */}
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
-          <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 10 }}>INFOS</div>
-          {[["Date", batch.date], ["Durée", fmtS(batch.duree_total || 0)], ["Poids vert", batch.poids_vert ? `${batch.poids_vert}g` : "—"], ["Poids torréfié", batch.poids_final ? `${batch.poids_final}g` : "—"], ["Perte", perte ? `${perte}%` : "—"], ["Dév. moy.", `±${avg}°F`]].map(([l, v]) => (
-            <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
-              <span style={{ color: C.muted }}>{l}</span><span style={{ color: C.cream, fontWeight: 600 }}>{v}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>INFOS</div>
+            <button onClick={() => setEditInfo(p => !p)}
+              style={{ ...BTN(editInfo ? C.surface2 : C.accent + "22", editInfo ? C.muted : C.gold), border: `1px solid ${editInfo ? C.border : C.accent}`, padding: "3px 10px", fontSize: 10 }}>
+              {editInfo ? "Annuler" : "✏ Modifier"}
+            </button>
+          </div>
+
+          {!editInfo ? (
+            [["Date", batch.date], ["Durée", fmtS(batch.duree_total || 0)], ["Poids vert", batch.poids_vert ? `${batch.poids_vert}g` : "—"], ["Poids torréfié", batch.poids_final ? `${batch.poids_final}g` : "—"], ["Perte", perte ? `${perte}%` : "—"], ["Couleur", coul?.label || "—"], ["Dév. moy.", `±${avg}°F`]].map(([l, v]) => (
+              <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
+                <span style={{ color: C.muted }}>{l}</span><span style={{ color: C.cream, fontWeight: 600 }}>{v}</span>
+              </div>
+            ))
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <label style={LBL}>Poids torréfié (g)</label>
+                <input type="number" value={infoF.poids_final} onChange={e => setInfoF(p => ({ ...p, poids_final: e.target.value }))}
+                  placeholder={batch.poids_vert ? `ex. ${Math.round(batch.poids_vert * 0.84)}` : "252"} style={INP} />
+                {perteEdit && <div style={{ color: C.muted, fontSize: 11, marginTop: 3 }}>Perte: <b style={{ color: C.cream }}>{perteEdit}%</b></div>}
+              </div>
+              <div>
+                <label style={LBL}>Couleur</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                  {COULEURS.map(c => (
+                    <button key={c.id} onClick={() => setInfoF(p => ({ ...p, couleur: c.id }))}
+                      style={{ background: c.bg, color: c.fg, border: `2px solid ${infoF.couleur === c.id ? C.gold : "transparent"}`, padding: "4px 10px", borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={LBL}>Notes de fin</label>
+                <textarea value={infoF.notes_fin} onChange={e => setInfoF(p => ({ ...p, notes_fin: e.target.value }))}
+                  style={{ ...INP, resize: "vertical", minHeight: 56 }} />
+              </div>
+              <button onClick={saveInfo} style={{ ...BTN(C.accent, "#fff"), padding: "8px 16px", fontSize: 12 }}>💾 Sauvegarder</button>
             </div>
-          ))}
+          )}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -735,7 +750,7 @@ const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
       </div>
 
       {/* DÉGUSTATION */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18 }}>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>☕ DÉGUSTATION</div>
           <button onClick={() => setEditDeg(p => !p)}
@@ -743,14 +758,12 @@ const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
             {editDeg ? "Annuler" : hasDeg ? "✏ Modifier" : "+ Ajouter une dégustation"}
           </button>
         </div>
-
         {!editDeg && !hasDeg && (
           <div style={{ textAlign: "center", padding: "24px", color: C.muted, fontSize: 12 }}>
             <div style={{ fontSize: 30, marginBottom: 8 }}>👃</div>
             Ajoutez vos impressions après dégustation — arômes, saveur, corps, note
           </div>
         )}
-
         {!editDeg && hasDeg && (
           <div>
             <div style={{ marginBottom: 14 }}>
@@ -767,7 +780,6 @@ const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
             </div>
           </div>
         )}
-
         {editDeg && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div>
@@ -789,6 +801,98 @@ const VueDetail = ({ batch, onBack, onSaveDegustation, curve }) => {
           </div>
         )}
       </div>
+
+      {/* LOG IMPRIMABLE */}
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>📋 LOG DE TORRÉFACTION</div>
+          <button onClick={() => window.print()} style={{ ...BTN(C.surface2, C.muted), border: `1px solid ${C.border}`, padding: "4px 12px", fontSize: 11 }}>🖨 Imprimer</button>
+        </div>
+
+        {/* En-tête fiche */}
+        <div style={{ borderBottom: `2px solid ${C.border}`, paddingBottom: 10, marginBottom: 12 }}>
+          <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: C.gold }}>Le Brûleur de l'est — Fiche de Torréfaction</div>
+          <div style={{ display: "flex", gap: 24, marginTop: 6, flexWrap: "wrap", fontSize: 12 }}>
+            <span style={{ color: C.muted }}>Batch : <b style={{ color: C.cream }}>{batch.batchNum}</b></span>
+            <span style={{ color: C.muted }}>Date : <b style={{ color: C.cream }}>{batch.date}</b></span>
+            <span style={{ color: C.muted }}>Origine : <b style={{ color: C.cream }}>{batch.origine || "—"}</b></span>
+            <span style={{ color: C.muted }}>Poids vert : <b style={{ color: C.cream }}>{batch.poids_vert ? `${batch.poids_vert}g` : "—"}</b></span>
+            <span style={{ color: C.muted }}>Poids torréfié : <b style={{ color: C.cream }}>{batch.poids_final ? `${batch.poids_final}g` : "—"}</b></span>
+            {perte && <span style={{ color: C.muted }}>Perte : <b style={{ color: C.cream }}>{perte}%</b></span>}
+            {coul && <span style={{ color: C.muted }}>Couleur : <b style={{ color: C.cream }}>{coul.label}</b></span>}
+            <span style={{ color: C.muted }}>Durée : <b style={{ color: C.cream }}>{fmtS(batch.duree_total || 0)}</b></span>
+          </div>
+        </div>
+
+        {/* Événements */}
+        {Object.keys(events).length > 0 && (
+          <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
+            {EVENT_DEFS.filter(ev => events[ev.id] != null).map(ev => (
+              <span key={ev.id} style={{ fontSize: 12, color: C.muted }}>
+                {ev.label} : <b style={{ color: ev.color }}>{fmtM(events[ev.id])}</b>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Tableau des lectures */}
+        {entries.length > 0 && (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
+            <thead>
+              <tr style={{ background: C.surface2 }}>
+                {["Heure", "ET/AT (°F)", "Réf. (°F)", "Écart", "Airflow", "Puissance"].map(h => (
+                  <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: C.muted, fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => {
+                const ref  = lerp(e.t, curve);
+                const diff = ref != null ? e.et - ref : null;
+                const col  = dotColor(e.et, e.t, curve);
+                return (
+                  <tr key={e.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 ? C.surface2 : "transparent" }}>
+                    <td style={{ padding: "5px 10px", color: C.gold, fontWeight: 700 }}>{fmtM(e.t)}</td>
+                    <td style={{ padding: "5px 10px", color: col, fontWeight: 700 }}>{e.et.toFixed(1)}</td>
+                    <td style={{ padding: "5px 10px", color: C.muted }}>{ref != null ? ref.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "5px 10px", color: col }}>{diff != null ? `${diff >= 0 ? "+" : ""}${diff.toFixed(1)}` : "—"}</td>
+                    <td style={{ padding: "5px 10px", color: C.muted }}>{e.airflow != null ? `${e.airflow}%` : "—"}</td>
+                    <td style={{ padding: "5px 10px", color: C.muted }}>{e.power   != null ? `${e.power}%`   : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {/* Notes et dégustation */}
+        {(batch.notes_debut || batch.notes_fin || batch.degustation?.aromes) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
+            <div>
+              {batch.notes_debut && <div style={{ color: C.muted, marginBottom: 4 }}><b style={{ color: C.cream }}>Notes départ :</b> {batch.notes_debut}</div>}
+              {batch.notes_fin   && <div style={{ color: C.muted }}><b style={{ color: C.cream }}>Notes fin :</b> {batch.notes_fin}</div>}
+            </div>
+            {batch.degustation && (
+              <div>
+                {batch.degustation.note && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Note :</b> {batch.degustation.note}/10</div>}
+                {batch.degustation.aromes && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Arômes :</b> {batch.degustation.aromes}</div>}
+                {batch.degustation.saveur && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Saveur :</b> {batch.degustation.saveur}</div>}
+                {batch.degustation.corps  && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Corps :</b> {batch.degustation.corps}</div>}
+                {batch.degustation.finale && <div style={{ color: C.muted }}><b style={{ color: C.cream }}>Finale :</b> {batch.degustation.finale}</div>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CSS IMPRESSION */}
+      <style>{`
+        @media print {
+          body { background: white !important; color: black !important; }
+          nav, button, [class*="navbar"] { display: none !important; }
+          * { color: black !important; background: white !important; border-color: #ccc !important; }
+        }
+      `}</style>
     </div>
   );
 };
@@ -880,47 +984,30 @@ const VueParams = ({ curve, onSave }) => {
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [view,    setView]    = useState("list")
-  const [batches, setBatches] = useState([])
-  const [active,  setActive]  = useState(null)
-  const [entries, setEntries] = useState([])
-  const [events,  setEvents]  = useState({})
-  const [curve,   setCurve]   = useState(PROFILS[0].points)
-  const [elapsed, setElapsed] = useState(0)
-  const [running, setRunning] = useState(false)
-  const [detail,  setDetail]  = useState(null)
-  const [loaded,  setLoaded]  = useState(false)
-  const [user,    setUser]    = useState(null)   // ← nouveau
+  const [view,    setView]    = useState("list");
+  const [batches, setBatches] = useState([]);
+  const [active,  setActive]  = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [events,  setEvents]  = useState({});
+  const [curve,   setCurve]   = useState(PROFILS[0].points);
+  const [elapsed, setElapsed] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [detail,  setDetail]  = useState(null);
+  const [loaded,  setLoaded]  = useState(false);
 
-  const timerRef = useRef(null)
-  const startRef = useRef(null)
-
-  useEffect(() => {
-    // Écouter les changements de session (magic link, logout)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
+  const timerRef = useRef(null);
+  const startRef = useRef(null);
 
   useEffect(() => {
-    if (!user) return   // ← attendre d'être connecté
-    ;(async () => {
-      const [b, c, a] = await Promise.all([
-        loadBatches().catch(() => []),
-        loadRefCurve().catch(() => null),
-        sGet(SK.active),
-      ])
-      if (b?.length) setBatches(b)
-      if (c) setCurve(c)
-      if (a?.batch) {
-        setActive(a.batch); setEntries(a.entries || [])
-        setEvents(a.events || {}); setElapsed(a.elapsed || 0)
-        setView("journal")
-      }
-      setLoaded(true)
-    })()
-  }, [user])
+    (async () => {
+      const [b, c, a] = await Promise.all([sGet(SK.batches), sGet(SK.ref), sGet(SK.active)]);
+      if (b) setBatches(b);
+      if (c) setCurve(c);
+      if (a?.batch) { setActive(a.batch); setEntries(a.entries || []); setEvents(a.events || {}); setElapsed(a.elapsed || 0); setView("journal"); }
+      setLoaded(true);
+    })();
+    return () => clearInterval(timerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!loaded || !active) return;
@@ -947,29 +1034,29 @@ export default function App() {
   const handleFin = () => { pauseTimer(); setView("fin"); };
 
   const handleSave = async finData => {
-    const done = { ...active, ...finData, readings: entries, events, duree_total: elapsed, statut: "termine" }
-    await saveBatch(done, entries, events)
-    const next = await loadBatches()
-    setBatches(next)
-    await sDel(SK.active)
-    setActive(null); setEntries([]); setEvents({}); setElapsed(0); setRunning(false); setView("list")
-  }
+    const done = { ...active, ...finData, readings: entries, events, duree_total: elapsed, statut: "termine" };
+    const next  = [...batches.filter(b => b.id !== active.id), done];
+    setBatches(next); await sSet(SK.batches, next); await sDel(SK.active);
+    setActive(null); setEntries([]); setEvents({}); setElapsed(0); setRunning(false); setView("list");
+  };
+
   const handleSaveDegustation = async (batchId, deg) => {
-    await saveDegustation(batchId, deg)
-    const next = batches.map(b => b.id === batchId ? { ...b, degustation: deg } : b)
-    setBatches(next)
-    setDetail(prev => prev?.id === batchId ? { ...prev, degustation: deg } : prev)
+    const next = batches.map(b => b.id === batchId ? { ...b, degustation: deg } : b);
+    setBatches(next); await sSet(SK.batches, next);
+    setDetail(prev => prev?.id === batchId ? { ...prev, degustation: deg } : prev);
   }
 
-  const handleSaveCurve = async c => {
-  setCurve(c)
-  await saveRefCurve(c)
-}
+  const handleSaveBatchInfo = async (updated) => {
+  const next = batches.map(b => b.id === updated.id ? updated : b)
+  setBatches(next)
+  await sSet(SK.batches, next)
+};
 
-   if (!user) return <VueLogin />
+  const handleSaveCurve = async c => { setCurve(c); await sSet(SK.ref, c); };
+
   if (!loaded) return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
-  )
+  );
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.cream, fontFamily: "'IBM Plex Mono', 'Courier New', monospace" }}>
@@ -986,9 +1073,7 @@ export default function App() {
 
       {/* NAVBAR */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog
-           <span style={{ color: C.muted, fontSize: 13, fontWeight: 400, marginLeft: 10 }}>· Le Brûleur de l'est</span>
-          </div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog</div>
         {[{ id: "list", label: "Batches", ico: "☕" }, { id: "settings", label: "Paramètres", ico: "⚙" }].map(n => (
           <button key={n.id} onClick={() => setView(n.id)}
             style={{ background: view === n.id ? C.accent + "22" : "transparent", color: view === n.id ? C.gold : C.muted, border: `1px solid ${view === n.id ? C.accent : "transparent"}`, padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
@@ -1001,17 +1086,13 @@ export default function App() {
             🔥 {active.batchNum} {running ? `· ${fmtS(elapsed)}` : "· En pause"}
           </button>
         )}
-        <button onClick={() => supabase.auth.signOut()}
-          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
-          Déconnexion
-        </button>
       </div>
 
       {view === "list"    && <VueListe    batches={batches} onNew={() => setView("create")} onOpen={handleOpen} />}
       {view === "create"  && <VueCreer   batches={batches} onStart={handleCreate} onCancel={() => setView("list")} />}
       {view === "journal" && active && <VueJournal batch={active} entries={entries} events={events} setEntries={setEntries} setEvents={setEvents} elapsed={elapsed} running={running} onStart={startTimer} onPause={pauseTimer} onFin={handleFin} curve={curve} />}
       {view === "fin"     && active && <VueFin batch={active} entries={entries} events={events} elapsed={elapsed} curve={curve} onSave={handleSave} onBack={() => { startTimer(); setView("journal"); }} />}
-      {view === "detail"  && detail && <VueDetail batch={detail} curve={curve} onBack={() => { setDetail(null); setView("list"); }} onSaveDegustation={handleSaveDegustation} />}
+      {view === "detail"  && detail && <VueDetail batch={detail} curve={curve} onBack={() => { setDetail(null); setView("list"); }} onSaveDegustation={handleSaveDegustation} onSaveBatchInfo={handleSaveBatchInfo} />}
       {view === "settings"           && <VueParams curve={curve} onSave={handleSaveCurve} />}
     </div>
   );
