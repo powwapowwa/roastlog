@@ -999,13 +999,14 @@ export default function App() {
   const startRef = useRef(null);
 
   useEffect(() => {
-    (async () => {
-      const [b, c, a] = await Promise.all([sGet(SK.batches), sGet(SK.ref), sGet(SK.active)]);
-      if (b) setBatches(b);
-      if (c) setCurve(c);
-      if (a?.batch) { setActive(a.batch); setEntries(a.entries || []); setEvents(a.events || {}); setElapsed(a.elapsed || 0); setView("journal"); }
-      setLoaded(true);
-    })();
+  if (!user) return
+  console.log('user connected:', user.id)
+  ;(async () => {
+    const b = await loadBatches().catch(e => { console.log('catch:', e); return [] })
+    console.log('batches loaded:', b)
+    if (b?.length) setBatches(b)
+    setLoaded(true)
+  })()
     return () => clearInterval(timerRef.current);
   }, []);
 
