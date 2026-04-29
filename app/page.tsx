@@ -172,9 +172,9 @@ const nextNum = (batches) => {
 };
 
 // ─── STORAGE ──────────────────────────────────────────────────────────────────
-const sGet = async k => { try { const r = await window.storage.get(k); return r ? JSON.parse(r.value) : null; } catch { return null; } };
-const sSet = async (k, v) => { try { await window.storage.set(k, JSON.stringify(v)); } catch {} };
-const sDel = async k => { try { await window.storage.delete(k); } catch {} };
+const sGet = async k => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
+const sSet = async (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const sDel = async k => { try { localStorage.removeItem(k); } catch {} };
 
 // ─── SHARED STYLES ────────────────────────────────────────────────────────────
 const INP = { background: C.surface2, border: `1px solid ${C.border}`, color: C.cream, padding: "9px 11px", borderRadius: 6, fontSize: 13, outline: "none", width: "100%", fontFamily: "inherit" };
@@ -1012,7 +1012,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !active) return;
     sSet(SK.active, { batch: active, entries, events, elapsed });
-  }, [entries, events, elapsed, active, loaded]);
+  }, [entries, events, active, loaded]);
 
   const startTimer = () => {
     startRef.current = Date.now() - elapsed * 1000;
@@ -1050,6 +1050,7 @@ export default function App() {
   const next = batches.map(b => b.id === updated.id ? updated : b)
   setBatches(next)
   await sSet(SK.batches, next)
+  setDetail(updated) 
 };
 
   const handleSaveCurve = async c => { setCurve(c); await sSet(SK.ref, c); };
