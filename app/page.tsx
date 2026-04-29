@@ -999,16 +999,17 @@ export default function App() {
   const startRef = useRef(null);
 
   useEffect(() => {
-  if (!user) return
-  console.log('user connected:', user.id)
-  ;(async () => {
-    const b = await loadBatches().catch(e => { console.log('catch:', e); return [] })
-    console.log('batches loaded:', b)
-    if (b?.length) setBatches(b)
-    setLoaded(true)
-  })()
-    return () => clearInterval(timerRef.current);
-  }, []);
+    if (!user) return
+    console.log('user connected:', user.id)
+    ;(async () => {
+      const b = await loadBatches().catch(e => { console.log('catch:', e); return [] })
+      console.log('batches loaded:', b)
+      if (b?.length) setBatches(b)
+      setLoaded(true)
+    })()
+  }, [user])
+      return () => clearInterval(timerRef.current);
+    }, []);
 
   useEffect(() => {
     if (!loaded || !active) return;
