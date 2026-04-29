@@ -1,14 +1,16 @@
 "use client"
 // @ts-nocheck
+export const dynamic = 'force-dynamic'
+
 import { useState, useRef, useEffect } from "react";
+import { supabase } from '../lib/supabaseClient'
+import { loadBatches, saveBatch, saveDegustation, loadRefCurve, saveRefCurve } from '../lib/roastService'
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer,
 } from "recharts";
 
-// ─── 6 PROFILS SR800 + TUBE D'EXTENSION (ET en °F) ───────────────────────────
-// Torréfacteur à air chaud. Avec tube d'extension : montée plus lente,
-// températures ET plus basses. Charge ~290°F, 1er crack 370–420°F selon niveau.
+// ─── 6 PROFILS SR800 + TUBE D'EXTENSION (ET en °F) ────────────────────────────
 const PROFILS = [
   {
     id: "sr800_cinnamon", label: "SR800 – Cinnamon", emoji: "🌿",
@@ -103,7 +105,6 @@ const PROFILS = [
   },
 ];
 
-
 const TOL = 15;
 
 const COULEURS = [
@@ -124,11 +125,11 @@ const EVENT_DEFS = [
 ];
 
 const DEGUST_FIELDS = [
-  { k: "aromes", label: "Arômes",     ph: "Fruité, floral, chocolat, noisette…" },
-  { k: "saveur", label: "Saveur",     ph: "Caramel, agrumes, épices…" },
-  { k: "corps",  label: "Corps",      ph: "Léger, moyen, plein, sirupeux…" },
-  { k: "finale", label: "Finale",     ph: "Courte, longue, amère, propre…" },
-  { k: "notes",  label: "Notes libres", ph: "Observations, améliorations pour le prochain batch…" },
+  { k: "aromes", label: "Arômes",      ph: "Fruité, floral, chocolat, noisette…" },
+  { k: "saveur", label: "Saveur",      ph: "Caramel, agrumes, épices…" },
+  { k: "corps",  label: "Corps",       ph: "Léger, moyen, plein, sirupeux…" },
+  { k: "finale", label: "Finale",      ph: "Courte, longue, amère, propre…" },
+  { k: "notes",  label: "Notes libres", ph: "Observations, améliorations…" },
 ];
 
 const C = {
@@ -138,12 +139,12 @@ const C = {
   green: "#4ADE80", yellow: "#FBBF24", red: "#F87171",
 };
 
-const SK = { batches: "rl_batches", ref: "rl_ref", active: "rl_active" };
+const SK = { active: "rl_active" };
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
-const uid = () => crypto.randomUUID();
-const fmtS = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-const fmtM = (m) => { const mm = Math.floor(m); const ss = Math.round((m - mm) * 60); return `${mm}:${String(ss).padStart(2, "0")}`; };
+const uid  = () => crypto.randomUUID();
+const fmtS = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const fmtM = m => { const mm = Math.floor(m); const ss = Math.round((m - mm) * 60); return `${mm}:${String(ss).padStart(2, "0")}`; };
 
 const lerp = (t, curve) => {
   const s = [...curve].sort((a, b) => a.t - b.t);
@@ -165,18 +166,18 @@ const dotColor = (et, t, curve) => {
   return d <= TOL ? C.green : d <= TOL * 2 ? C.yellow : C.red;
 };
 
-const nextNum = (batches) => {
+const nextNum = batches => {
   const y = new Date().getFullYear();
   const nums = batches.filter(b => b.batchNum?.startsWith(`B-${y}-`)).map(b => parseInt(b.batchNum.split("-")[2]) || 0);
   return `B-${y}-${String(nums.length ? Math.max(...nums) + 1 : 1).padStart(3, "0")}`;
 };
 
-// ─── STORAGE ──────────────────────────────────────────────────────────────────
+// ─── SESSION LOCALE (batch en cours) ─────────────────────────────────────────
 const sGet = async k => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
 const sSet = async (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 const sDel = async k => { try { localStorage.removeItem(k); } catch {} };
 
-// ─── SHARED STYLES ────────────────────────────────────────────────────────────
+// ─── STYLES ───────────────────────────────────────────────────────────────────
 const INP = { background: C.surface2, border: `1px solid ${C.border}`, color: C.cream, padding: "9px 11px", borderRadius: 6, fontSize: 13, outline: "none", width: "100%", fontFamily: "inherit" };
 const LBL = { color: C.muted, fontSize: 10, fontWeight: 600, letterSpacing: "0.09em", textTransform: "uppercase", display: "block", marginBottom: 5 };
 const BTN = (bg, fg, extra = {}) => ({ background: bg, color: fg, border: "none", padding: "10px 20px", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", ...extra });
@@ -221,18 +222,14 @@ const RoastChart = ({ entries = [], events = {}, curve, height = 260 }) => {
         <XAxis dataKey="t" type="number" domain={[0, maxT]} tickCount={Math.min(maxT + 1, 16)}
           tickFormatter={fmtM} tick={{ fill: C.muted, fontSize: 10 }} stroke={C.border}
           label={{ value: "mm:ss", position: "insideBottom", offset: -10, fill: C.muted, fontSize: 10 }} />
-        <YAxis domain={[220, 450]} tickFormatter={v => `${v}°`}
-          tick={{ fill: C.muted, fontSize: 10 }} stroke={C.border} />
+        <YAxis domain={[220, 450]} tickFormatter={v => `${v}°`} tick={{ fill: C.muted, fontSize: 10 }} stroke={C.border} />
         <Tooltip content={<ChartTooltip entries={entries} curve={curve} />} />
         <Area data={refData} dataKey="hi" type="monotone" stroke="none" fill={C.gold} fillOpacity={0.15} legendType="none" />
-        <Area data={refData} dataKey="lo" type="monotone" stroke="none" fill={C.bg}   fillOpacity={1}    legendType="none" />
-        <Line data={refData} dataKey="ref" name="Référence" type="monotone"
-          stroke={C.gold} strokeWidth={2} strokeDasharray="7 3" dot={false} />
+        <Area data={refData} dataKey="lo" type="monotone" stroke="none" fill={C.bg} fillOpacity={1} legendType="none" />
+        <Line data={refData} dataKey="ref" name="Référence" type="monotone" stroke={C.gold} strokeWidth={2} strokeDasharray="7 3" dot={false} />
         {actual.length > 0 && (
-          <Line data={actual} dataKey="actual" name="ET réel" type="monotone"
-            stroke={C.cream} strokeWidth={2}
-            dot={<CustomDot entries={entries} curve={curve} />}
-            activeDot={{ r: 6, fill: C.gold }} />
+          <Line data={actual} dataKey="actual" name="ET réel" type="monotone" stroke={C.cream} strokeWidth={2}
+            dot={<CustomDot entries={entries} curve={curve} />} activeDot={{ r: 6, fill: C.gold }} />
         )}
         {EVENT_DEFS.map(ev => events[ev.id] != null && (
           <ReferenceLine key={ev.id} x={events[ev.id]} stroke={ev.color} strokeDasharray="4 2"
@@ -255,6 +252,45 @@ const StarRating = ({ value, onChange, readOnly = false }) => (
   </div>
 );
 
+// ─── VUE LOGIN ────────────────────────────────────────────────────────────────
+const VueLogin = () => {
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+
+  const login = async () => {
+    if (!email || !password) return;
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (error) setError("Email ou mot de passe incorrect");
+  };
+
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Cormorant+Garamond:wght@400;600;700&display=swap');* { box-sizing: border-box; margin: 0; padding: 0; }input::placeholder { color: #4A3820; }input:focus { border-color: ${C.accent} !important; outline: none; }`}</style>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "40px 36px", maxWidth: 380, width: "100%" }}>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 28, color: C.gold, marginBottom: 4 }}>☕ RoastLog</div>
+        <div style={{ color: C.muted, fontSize: 11, marginBottom: 6 }}>Le Brûleur de l'est</div>
+        <div style={{ color: C.muted, fontSize: 12, marginBottom: 28 }}>Connexion</div>
+        <label style={LBL}>Email</label>
+        <input value={email} onChange={e => setEmail(e.target.value)} type="email"
+          placeholder="toi@email.com" style={{ ...INP, marginBottom: 12 }} />
+        <label style={LBL}>Mot de passe</label>
+        <input value={password} onChange={e => setPassword(e.target.value)} type="password"
+          placeholder="••••••••" onKeyDown={e => e.key === "Enter" && login()}
+          style={{ ...INP, marginBottom: 16 }} />
+        {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>{error}</div>}
+        <button onClick={login} disabled={loading || !email || !password}
+          style={{ ...BTN(C.accent, "#fff"), width: "100%", opacity: loading ? 0.6 : 1 }}>
+          {loading ? "Connexion…" : "Se connecter"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── VUE LISTE ────────────────────────────────────────────────────────────────
 const VueListe = ({ batches, onNew, onOpen }) => {
   const [search,      setSearch]      = useState("");
@@ -263,16 +299,16 @@ const VueListe = ({ batches, onNew, onOpen }) => {
   const [filtCouleur, setFiltCouleur] = useState("");
 
   let list = [...batches];
-  if (search)        list = list.filter(b => b.batchNum?.toLowerCase().includes(search.toLowerCase()) || b.origine?.toLowerCase().includes(search.toLowerCase()));
+  if (search) list = list.filter(b => b.batchNum?.toLowerCase().includes(search.toLowerCase()) || b.origine?.toLowerCase().includes(search.toLowerCase()));
   if (filtStatut !== "tous") list = list.filter(b => b.statut === filtStatut);
-  if (filtCouleur)   list = list.filter(b => b.couleur === filtCouleur);
+  if (filtCouleur) list = list.filter(b => b.couleur === filtCouleur);
   list.sort((a, b) => {
-    if (sortBy === "date_desc")  return new Date(b.date) - new Date(a.date);
-    if (sortBy === "date_asc")   return new Date(a.date) - new Date(b.date);
-    if (sortBy === "note_desc")  return (b.degustation?.note || 0) - (a.degustation?.note || 0);
-    if (sortBy === "note_asc")   return (a.degustation?.note || 0) - (b.degustation?.note || 0);
-    if (sortBy === "num_desc")   return (b.batchNum || "").localeCompare(a.batchNum || "");
-    if (sortBy === "num_asc")    return (a.batchNum || "").localeCompare(b.batchNum || "");
+    if (sortBy === "date_desc") return new Date(b.date) - new Date(a.date);
+    if (sortBy === "date_asc")  return new Date(a.date) - new Date(b.date);
+    if (sortBy === "note_desc") return (b.degustation?.note || 0) - (a.degustation?.note || 0);
+    if (sortBy === "note_asc")  return (a.degustation?.note || 0) - (b.degustation?.note || 0);
+    if (sortBy === "num_desc")  return (b.batchNum || "").localeCompare(a.batchNum || "");
+    if (sortBy === "num_asc")   return (a.batchNum || "").localeCompare(b.batchNum || "");
     return 0;
   });
 
@@ -291,23 +327,18 @@ const VueListe = ({ batches, onNew, onOpen }) => {
         </div>
         <button onClick={onNew} style={BTN(C.accent, "#fff")}>+ Nouveau batch</button>
       </div>
-
-      {/* Barre filtres */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Numéro, origine…" style={{ ...INP, width: 200, padding: "6px 10px", fontSize: 12 }} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Numéro, origine…" style={{ ...INP, width: 200, padding: "6px 10px", fontSize: 12 }} />
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-          <Chip active={filtStatut === "tous"}     label="Tous"      onClick={() => setFiltStatut("tous")} />
-          <Chip active={filtStatut === "en_cours"} label="En cours"  onClick={() => setFiltStatut("en_cours")} />
-          <Chip active={filtStatut === "termine"}  label="Terminés"  onClick={() => setFiltStatut("termine")} />
+          <Chip active={filtStatut === "tous"}     label="Tous"     onClick={() => setFiltStatut("tous")} />
+          <Chip active={filtStatut === "en_cours"} label="En cours" onClick={() => setFiltStatut("en_cours")} />
+          <Chip active={filtStatut === "termine"}  label="Terminés" onClick={() => setFiltStatut("termine")} />
         </div>
-        <select value={filtCouleur} onChange={e => setFiltCouleur(e.target.value)}
-          style={{ ...INP, width: "auto", padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
+        <select value={filtCouleur} onChange={e => setFiltCouleur(e.target.value)} style={{ ...INP, width: "auto", padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
           <option value="">Toutes couleurs</option>
           {COULEURS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
         </select>
-        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-          style={{ ...INP, width: "auto", padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ ...INP, width: "auto", padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>
           <option value="date_desc">Date ↓ récent</option>
           <option value="date_asc">Date ↑ ancien</option>
           <option value="note_desc">Note ↓ meilleure</option>
@@ -316,11 +347,9 @@ const VueListe = ({ batches, onNew, onOpen }) => {
           <option value="num_asc">Numéro ↑</option>
         </select>
         {(search || filtStatut !== "tous" || filtCouleur) && (
-          <button onClick={() => { setSearch(""); setFiltStatut("tous"); setFiltCouleur(""); }}
-            style={{ background: "none", border: "none", color: C.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✕ Réinitialiser</button>
+          <button onClick={() => { setSearch(""); setFiltStatut("tous"); setFiltCouleur(""); }} style={{ background: "none", border: "none", color: C.muted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✕ Réinitialiser</button>
         )}
       </div>
-
       {list.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: C.muted }}>
           <div style={{ fontSize: 48, marginBottom: 14 }}>☕</div>
@@ -334,7 +363,7 @@ const VueListe = ({ batches, onNew, onOpen }) => {
             const note    = b.degustation?.note;
             return (
               <div key={b.id} onClick={() => onOpen(b)}
-                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, transition: "border-color 0.15s" }}
+                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "11px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14 }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
                 onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
                 <div style={{ width: 42, height: 42, borderRadius: 7, background: coul?.bg || C.surface2, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>☕</div>
@@ -350,11 +379,7 @@ const VueListe = ({ batches, onNew, onOpen }) => {
                   <div style={{ color: C.muted, fontSize: 11, marginTop: 1 }}>
                     {b.date}{b.poids_vert ? ` · ${b.poids_vert}g vert` : ""}{b.poids_final ? ` → ${b.poids_final}g torréfié` : ""}
                   </div>
-                  {note && (
-                    <div style={{ display: "flex", gap: 2, marginTop: 3 }}>
-                      {[1,2,3,4,5,6,7,8,9,10].map(n => <span key={n} style={{ fontSize: 10, color: n <= note ? C.gold : C.border }}>★</span>)}
-                    </div>
-                  )}
+                  {note && <div style={{ display: "flex", gap: 2, marginTop: 3 }}>{[1,2,3,4,5,6,7,8,9,10].map(n => <span key={n} style={{ fontSize: 10, color: n <= note ? C.gold : C.border }}>★</span>)}</div>}
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0, fontSize: 11 }}>
                   {b.duree_total > 0 && <div style={{ color: C.gold, fontWeight: 700, fontSize: 13 }}>{fmtS(b.duree_total)}</div>}
@@ -379,11 +404,9 @@ const VueCreer = ({ batches, onStart, onCancel }) => {
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: C.gold }}>Nouveau Batch</div>
       <div style={{ color: C.muted, fontSize: 12, marginBottom: 24, marginTop: 2 }}>{num} · {new Date().toISOString().split("T")[0]}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div><label style={LBL}>Origine</label><input value={f.origine} onChange={e => setF(p => ({ ...p, origine: e.target.value }))} placeholder="ex. Éthiopie Yirgacheffe, Lot 42" style={INP} /></div>
-        <div><label style={LBL}>Poids vert (g)</label><input type="number" value={f.poids_vert} onChange={e => setF(p => ({ ...p, poids_vert: e.target.value }))} placeholder="300" style={INP} /></div>
-        <div><label style={LBL}>Notes de départ</label>
-          <textarea value={f.notes_debut} onChange={e => setF(p => ({ ...p, notes_debut: e.target.value }))}
-            placeholder="Humidité, conditions, objectif de profil…" style={{ ...INP, resize: "vertical", minHeight: 72 }} /></div>
+        <div><label style={LBL}>Origine</label><input value={f.origine} onChange={e => setF(p => ({ ...p, origine: e.target.value }))} placeholder="ex. Brésil CERRADO, Lot 42" style={INP} /></div>
+        <div><label style={LBL}>Poids vert (g)</label><input type="number" value={f.poids_vert} onChange={e => setF(p => ({ ...p, poids_vert: e.target.value }))} placeholder="150" style={INP} /></div>
+        <div><label style={LBL}>Notes de départ</label><textarea value={f.notes_debut} onChange={e => setF(p => ({ ...p, notes_debut: e.target.value }))} placeholder="Humidité, conditions, objectif de profil…" style={{ ...INP, resize: "vertical", minHeight: 72 }} /></div>
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button onClick={onCancel} style={{ ...BTN("transparent", C.muted), border: `1px solid ${C.border}`, flex: 1, fontWeight: 400 }}>Annuler</button>
           <button onClick={() => onStart({
@@ -400,11 +423,11 @@ const VueCreer = ({ batches, onStart, onCancel }) => {
 
 // ─── VUE JOURNAL ──────────────────────────────────────────────────────────────
 const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, running, onStart, onPause, onFin, curve }) => {
-  const [et,      setEt]      = useState("");
+  const [et, setEt] = useState("");
   const [airflow, setAirflow] = useState("");
-  const [power,   setPower]   = useState("");
-  const [adv,     setAdv]     = useState(false);
-  const inputRef              = useRef(null);
+  const [power, setPower] = useState("");
+  const [adv, setAdv] = useState(false);
+  const inputRef = useRef(null);
 
   const add = () => {
     if (!et) return;
@@ -416,9 +439,8 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
   const mark = id => setEvents(prev => ({ ...prev, [id]: Math.round((elapsed / 60) * 100) / 100 }));
   const rmEv = id => setEvents(prev => { const n = { ...prev }; delete n[id]; return n; });
   const rmEn = id => setEntries(prev => prev.filter(e => e.id !== id));
-
   const diffs = entries.map(e => { const r = lerp(e.t, curve); return r ? Math.abs(e.et - r) : 0; });
-  const avg   = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : "—";
+  const avg = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : "—";
 
   return (
     <div style={{ padding: "14px 20px", display: "grid", gridTemplateColumns: "210px 1fr", gap: 14, maxWidth: 1220, margin: "0 auto" }}>
@@ -429,7 +451,6 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
           <div style={{ color: C.cream, fontSize: 12, marginTop: 2 }}>{batch.origine || "—"}</div>
           {batch.poids_vert && <div style={{ color: C.muted, fontSize: 11, marginTop: 1 }}>{batch.poids_vert}g vert</div>}
         </div>
-
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14 }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 8 }}>ÉVÉNEMENTS</div>
           <div style={{ fontSize: 10, color: C.muted, marginBottom: 8 }}>Cliquer = marque l'heure actuelle</div>
@@ -444,7 +465,6 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
             );
           })}
         </div>
-
         {entries.length > 0 && (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14 }}>
             <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 8 }}>STATS</div>
@@ -455,7 +475,6 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
             ))}
           </div>
         )}
-
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
           <div style={{ fontSize: 10, color: C.muted, marginBottom: 8 }}>Légende points</div>
           {[[C.green, `≤ ±${TOL}°F`], [C.yellow, `≤ ±${TOL * 2}°F`], [C.red, `> ±${TOL * 2}°F`]].map(([col, txt]) => (
@@ -465,10 +484,8 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
             </div>
           ))}
         </div>
-
         <button onClick={onFin} style={{ ...BTN("#7F1D1D", "#FCA5A5"), border: "1px solid #991B1B", padding: "12px", borderRadius: 8, fontWeight: 700, fontSize: 13 }}>⏹ Terminer le batch</button>
       </div>
-
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 20 }}>
@@ -484,18 +501,11 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
             <div style={{ flex: 1 }}>
               <label style={{ ...LBL, marginBottom: 8 }}>TEMPÉRATURE ET / AT (°F)</label>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <input ref={inputRef} type="number" value={et} autoFocus
-                  onChange={e => setEt(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && add()}
-                  placeholder="435"
-                  style={{ ...INP, fontSize: 30, fontWeight: 700, padding: "8px 14px", flex: 1, textAlign: "center" }} />
-                <button onClick={add} disabled={!et}
-                  style={{ background: et ? C.accent : C.surface2, color: et ? "#fff" : C.muted, border: "none", padding: "0 20px", borderRadius: 6, fontSize: 24, fontWeight: 700, cursor: et ? "pointer" : "default", fontFamily: "inherit" }}>+</button>
+                <input ref={inputRef} type="number" value={et} autoFocus onChange={e => setEt(e.target.value)} onKeyDown={e => e.key === "Enter" && add()} placeholder="350" style={{ ...INP, fontSize: 30, fontWeight: 700, padding: "8px 14px", flex: 1, textAlign: "center" }} />
+                <button onClick={add} disabled={!et} style={{ background: et ? C.accent : C.surface2, color: et ? "#fff" : C.muted, border: "none", padding: "0 20px", borderRadius: 6, fontSize: 24, fontWeight: 700, cursor: et ? "pointer" : "default", fontFamily: "inherit" }}>+</button>
               </div>
               <div style={{ fontSize: 10, color: C.muted, marginBottom: 8 }}>↵ Entrée pour enregistrer · Temps capturé à {fmtS(elapsed)}</div>
-              <button onClick={() => setAdv(p => !p)} style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: 0, fontFamily: "inherit" }}>
-                {adv ? "▼" : "▶"} Airflow / Puissance
-              </button>
+              <button onClick={() => setAdv(p => !p)} style={{ background: "none", border: "none", color: C.muted, fontSize: 11, cursor: "pointer", padding: 0, fontFamily: "inherit" }}>{adv ? "▼" : "▶"} Airflow / Puissance</button>
               {adv && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
                   <div><label style={LBL}>Airflow (%)</label><input type="number" value={airflow} onChange={e => setAirflow(e.target.value)} placeholder="75" style={INP} /></div>
@@ -505,12 +515,10 @@ const VueJournal = ({ batch, entries, events, setEntries, setEvents, elapsed, ru
             </div>
           </div>
         </div>
-
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 8px 10px 4px" }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", paddingLeft: 12, marginBottom: 8 }}>COURBE EN DIRECT</div>
           <RoastChart entries={entries} events={events} curve={curve} height={240} />
         </div>
-
         {entries.length > 0 && (
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -554,12 +562,10 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
   const avg   = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : "—";
   const inTol = diffs.filter(d => d <= TOL).length;
   const perte = f.poids_final && batch.poids_vert ? ((batch.poids_vert - parseFloat(f.poids_final)) / batch.poids_vert * 100).toFixed(1) : null;
-
   return (
     <div style={{ padding: "24px", maxWidth: 760, margin: "0 auto" }}>
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, color: C.gold }}>Résumé du Batch</div>
       <div style={{ color: C.muted, fontSize: 12, marginBottom: 20, marginTop: 2 }}>{batch.batchNum} · {batch.origine || "—"}</div>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
         {[["⏱", "Durée", fmtS(elapsed)], ["📊", "Lectures", entries.length], ["🎯", "Dév. moy.", `±${avg}°F`], ["✅", "Dans tol.", `${inTol}/${entries.length}`]].map(([ico, l, v]) => (
           <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 12px", textAlign: "center" }}>
@@ -569,7 +575,6 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
           </div>
         ))}
       </div>
-
       {Object.keys(events).length > 0 && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 12 }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 10 }}>ÉVÉNEMENTS</div>
@@ -583,17 +588,14 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
           </div>
         </div>
       )}
-
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 8px 10px 4px", marginBottom: 14 }}>
         <RoastChart entries={entries} events={events} curve={curve} height={180} />
       </div>
-
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>COMPLÉTER & SAUVEGARDER</div>
         <div>
           <label style={LBL}>Poids torréfié (g)</label>
-          <input type="number" value={f.poids_final} onChange={e => setF(p => ({ ...p, poids_final: e.target.value }))}
-            placeholder={batch.poids_vert ? `ex. ${Math.round(batch.poids_vert * 0.84)}` : "ex. 252"} style={INP} />
+          <input type="number" value={f.poids_final} onChange={e => setF(p => ({ ...p, poids_final: e.target.value }))} placeholder={batch.poids_vert ? `ex. ${Math.round(batch.poids_vert * 0.84)}` : "ex. 126"} style={INP} />
           {perte && <div style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>Perte : <b style={{ color: C.cream }}>{perte}%</b></div>}
         </div>
         <div>
@@ -609,13 +611,11 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
         </div>
         <div>
           <label style={LBL}>Notes de fin</label>
-          <textarea value={f.notes_fin} onChange={e => setF(p => ({ ...p, notes_fin: e.target.value }))}
-            placeholder="1er crack à 9:30, progression Maillard bien contrôlée…" style={{ ...INP, resize: "vertical", minHeight: 72 }} />
+          <textarea value={f.notes_fin} onChange={e => setF(p => ({ ...p, notes_fin: e.target.value }))} placeholder="1er crack à 9:30, progression Maillard bien contrôlée…" style={{ ...INP, resize: "vertical", minHeight: 72 }} />
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
           <button onClick={onBack} style={{ ...BTN("transparent", C.muted), border: `1px solid ${C.border}`, fontWeight: 400 }}>← Continuer</button>
-          <button onClick={() => onSave({ ...f, poids_final: f.poids_final ? parseFloat(f.poids_final) : null })}
-            style={{ ...BTN(C.accent, "#fff"), flex: 1 }}>💾 Sauvegarder le batch</button>
+          <button onClick={() => onSave({ ...f, poids_final: f.poids_final ? parseFloat(f.poids_final) : null })} style={{ ...BTN(C.accent, "#fff"), flex: 1 }}>💾 Sauvegarder le batch</button>
         </div>
       </div>
     </div>
@@ -624,21 +624,21 @@ const VueFin = ({ batch, entries, events, elapsed, curve, onSave, onBack }) => {
 
 // ─── VUE DÉTAIL + DÉGUSTATION ─────────────────────────────────────────────────
 const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatchInfo, curve }) => {
-  const [batch,   setBatch]   = useState(initialBatch);
+  const [batch,    setBatch]    = useState(initialBatch);
+  const [editDeg,  setEditDeg]  = useState(false);
+  const [editInfo, setEditInfo] = useState(false);
+  const [deg,      setDeg]      = useState(initialBatch.degustation || { note: null, aromes: "", saveur: "", corps: "", finale: "", notes: "" });
+  const [infoF,    setInfoF]    = useState({ poids_final: initialBatch.poids_final || "", couleur: initialBatch.couleur || "", notes_fin: initialBatch.notes_fin || "" });
+  const [saved,    setSaved]    = useState("");
+
   const entries = batch.readings || [];
   const events  = batch.events  || {};
   const coul    = COULEURS.find(c => c.id === batch.couleur);
   const diffs   = entries.map(e => { const r = lerp(e.t, curve); return r ? Math.abs(e.et - r) : 0; });
   const avg     = diffs.length ? (diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(1) : "—";
   const perte   = batch.poids_final && batch.poids_vert ? ((batch.poids_vert - batch.poids_final) / batch.poids_vert * 100).toFixed(1) : null;
-
-  const [editDeg,  setEditDeg]  = useState(false);
-  const [editInfo, setEditInfo] = useState(false);
-  const [deg,      setDeg]      = useState(batch.degustation || { note: null, aromes: "", saveur: "", corps: "", finale: "", notes: "" });
-  const [infoF,    setInfoF]    = useState({ poids_final: batch.poids_final || "", couleur: batch.couleur || "", notes_fin: batch.notes_fin || "" });
-  const [saved,    setSaved]    = useState("");
-
-  const hasDeg = batch.degustation && (batch.degustation.note || batch.degustation.aromes || batch.degustation.notes);
+  const hasDeg  = batch.degustation && (batch.degustation.note || batch.degustation.aromes || batch.degustation.notes);
+  const perteEdit = infoF.poids_final && batch.poids_vert ? ((batch.poids_vert - parseFloat(infoF.poids_final)) / batch.poids_vert * 100).toFixed(1) : null;
 
   const saveDeg = () => {
     onSaveDegustation(batch.id, deg);
@@ -655,12 +655,8 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
     setTimeout(() => setSaved(""), 2000);
   };
 
-  const coulEdit = COULEURS.find(c => c.id === (editInfo ? infoF.couleur : batch.couleur));
-  const perteEdit = infoF.poids_final && batch.poids_vert ? ((batch.poids_vert - parseFloat(infoF.poids_final)) / batch.poids_vert * 100).toFixed(1) : null;
-
   return (
     <div style={{ padding: "20px 24px", maxWidth: 900, margin: "0 auto" }}>
-      {/* HEADER */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
         <button onClick={onBack} style={{ ...BTN("transparent", C.muted), border: `1px solid ${C.border}`, fontWeight: 400, padding: "6px 12px", fontSize: 12 }}>← Liste</button>
         <div style={{ flex: 1 }}>
@@ -676,22 +672,18 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
         {batch.degustation?.note && <StarRating value={batch.degustation.note} readOnly />}
       </div>
 
-      {/* GRAPHIQUE */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 8px 10px 4px", marginBottom: 14 }}>
         <RoastChart entries={entries} events={events} curve={curve} height={220} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
-        {/* INFOS avec bouton modifier */}
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>INFOS</div>
-            <button onClick={() => setEditInfo(p => !p)}
-              style={{ ...BTN(editInfo ? C.surface2 : C.accent + "22", editInfo ? C.muted : C.gold), border: `1px solid ${editInfo ? C.border : C.accent}`, padding: "3px 10px", fontSize: 10 }}>
+            <button onClick={() => setEditInfo(p => !p)} style={{ ...BTN(editInfo ? C.surface2 : C.accent + "22", editInfo ? C.muted : C.gold), border: `1px solid ${editInfo ? C.border : C.accent}`, padding: "3px 10px", fontSize: 10 }}>
               {editInfo ? "Annuler" : "✏ Modifier"}
             </button>
           </div>
-
           {!editInfo ? (
             [["Date", batch.date], ["Durée", fmtS(batch.duree_total || 0)], ["Poids vert", batch.poids_vert ? `${batch.poids_vert}g` : "—"], ["Poids torréfié", batch.poids_final ? `${batch.poids_final}g` : "—"], ["Perte", perte ? `${perte}%` : "—"], ["Couleur", coul?.label || "—"], ["Dév. moy.", `±${avg}°F`]].map(([l, v]) => (
               <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
@@ -702,8 +694,7 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
                 <label style={LBL}>Poids torréfié (g)</label>
-                <input type="number" value={infoF.poids_final} onChange={e => setInfoF(p => ({ ...p, poids_final: e.target.value }))}
-                  placeholder={batch.poids_vert ? `ex. ${Math.round(batch.poids_vert * 0.84)}` : "252"} style={INP} />
+                <input type="number" value={infoF.poids_final} onChange={e => setInfoF(p => ({ ...p, poids_final: e.target.value }))} placeholder={batch.poids_vert ? `ex. ${Math.round(batch.poids_vert * 0.84)}` : "126"} style={INP} />
                 {perteEdit && <div style={{ color: C.muted, fontSize: 11, marginTop: 3 }}>Perte: <b style={{ color: C.cream }}>{perteEdit}%</b></div>}
               </div>
               <div>
@@ -719,14 +710,12 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
               </div>
               <div>
                 <label style={LBL}>Notes de fin</label>
-                <textarea value={infoF.notes_fin} onChange={e => setInfoF(p => ({ ...p, notes_fin: e.target.value }))}
-                  style={{ ...INP, resize: "vertical", minHeight: 56 }} />
+                <textarea value={infoF.notes_fin} onChange={e => setInfoF(p => ({ ...p, notes_fin: e.target.value }))} style={{ ...INP, resize: "vertical", minHeight: 56 }} />
               </div>
               <button onClick={saveInfo} style={{ ...BTN(C.accent, "#fff"), padding: "8px 16px", fontSize: 12 }}>💾 Sauvegarder</button>
             </div>
           )}
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {Object.keys(events).length > 0 && (
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
@@ -749,27 +738,17 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
         </div>
       </div>
 
-      {/* DÉGUSTATION */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18, marginBottom: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>☕ DÉGUSTATION</div>
-          <button onClick={() => setEditDeg(p => !p)}
-            style={{ ...BTN(editDeg ? C.surface2 : C.accent + "33", editDeg ? C.muted : C.gold), border: `1px solid ${editDeg ? C.border : C.accent}`, padding: "5px 14px", fontSize: 11 }}>
+          <button onClick={() => setEditDeg(p => !p)} style={{ ...BTN(editDeg ? C.surface2 : C.accent + "33", editDeg ? C.muted : C.gold), border: `1px solid ${editDeg ? C.border : C.accent}`, padding: "5px 14px", fontSize: 11 }}>
             {editDeg ? "Annuler" : hasDeg ? "✏ Modifier" : "+ Ajouter une dégustation"}
           </button>
         </div>
-        {!editDeg && !hasDeg && (
-          <div style={{ textAlign: "center", padding: "24px", color: C.muted, fontSize: 12 }}>
-            <div style={{ fontSize: 30, marginBottom: 8 }}>👃</div>
-            Ajoutez vos impressions après dégustation — arômes, saveur, corps, note
-          </div>
-        )}
+        {!editDeg && !hasDeg && <div style={{ textAlign: "center", padding: "24px", color: C.muted, fontSize: 12 }}><div style={{ fontSize: 30, marginBottom: 8 }}>👃</div>Ajoutez vos impressions après dégustation</div>}
         {!editDeg && hasDeg && (
           <div>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ ...LBL, marginBottom: 6 }}>Note globale</div>
-              <StarRating value={batch.degustation.note} readOnly />
-            </div>
+            <div style={{ marginBottom: 14 }}><div style={{ ...LBL, marginBottom: 6 }}>Note globale</div><StarRating value={batch.degustation.note} readOnly /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {DEGUST_FIELDS.map(f => batch.degustation[f.k] && (
                 <div key={f.k} style={{ gridColumn: f.k === "notes" ? "1 / -1" : "auto" }}>
@@ -782,10 +761,7 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
         )}
         {editDeg && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div>
-              <label style={LBL}>Note globale (/10)</label>
-              <StarRating value={deg.note} onChange={n => setDeg(p => ({ ...p, note: n }))} />
-            </div>
+            <div><label style={LBL}>Note globale (/10)</label><StarRating value={deg.note} onChange={n => setDeg(p => ({ ...p, note: n }))} /></div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {DEGUST_FIELDS.map(f => (
                 <div key={f.k} style={{ gridColumn: f.k === "notes" ? "1 / -1" : "auto" }}>
@@ -802,46 +778,32 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
         )}
       </div>
 
-      {/* LOG IMPRIMABLE */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>📋 LOG DE TORRÉFACTION</div>
           <button onClick={() => window.print()} style={{ ...BTN(C.surface2, C.muted), border: `1px solid ${C.border}`, padding: "4px 12px", fontSize: 11 }}>🖨 Imprimer</button>
         </div>
-
-        {/* En-tête fiche */}
         <div style={{ borderBottom: `2px solid ${C.border}`, paddingBottom: 10, marginBottom: 12 }}>
           <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, color: C.gold }}>Le Brûleur de l'est — Fiche de Torréfaction</div>
           <div style={{ display: "flex", gap: 24, marginTop: 6, flexWrap: "wrap", fontSize: 12 }}>
-            <span style={{ color: C.muted }}>Batch : <b style={{ color: C.cream }}>{batch.batchNum}</b></span>
-            <span style={{ color: C.muted }}>Date : <b style={{ color: C.cream }}>{batch.date}</b></span>
-            <span style={{ color: C.muted }}>Origine : <b style={{ color: C.cream }}>{batch.origine || "—"}</b></span>
-            <span style={{ color: C.muted }}>Poids vert : <b style={{ color: C.cream }}>{batch.poids_vert ? `${batch.poids_vert}g` : "—"}</b></span>
-            <span style={{ color: C.muted }}>Poids torréfié : <b style={{ color: C.cream }}>{batch.poids_final ? `${batch.poids_final}g` : "—"}</b></span>
-            {perte && <span style={{ color: C.muted }}>Perte : <b style={{ color: C.cream }}>{perte}%</b></span>}
-            {coul && <span style={{ color: C.muted }}>Couleur : <b style={{ color: C.cream }}>{coul.label}</b></span>}
-            <span style={{ color: C.muted }}>Durée : <b style={{ color: C.cream }}>{fmtS(batch.duree_total || 0)}</b></span>
+            {[["Batch", batch.batchNum], ["Date", batch.date], ["Origine", batch.origine || "—"], ["Poids vert", batch.poids_vert ? `${batch.poids_vert}g` : "—"], ["Poids torréfié", batch.poids_final ? `${batch.poids_final}g` : "—"], perte && ["Perte", `${perte}%`], coul && ["Couleur", coul.label], ["Durée", fmtS(batch.duree_total || 0)]].filter(Boolean).map(([l, v]) => (
+              <span key={l} style={{ color: C.muted }}>{l} : <b style={{ color: C.cream }}>{v}</b></span>
+            ))}
           </div>
         </div>
-
-        {/* Événements */}
         {Object.keys(events).length > 0 && (
           <div style={{ display: "flex", gap: 20, marginBottom: 12, flexWrap: "wrap" }}>
             {EVENT_DEFS.filter(ev => events[ev.id] != null).map(ev => (
-              <span key={ev.id} style={{ fontSize: 12, color: C.muted }}>
-                {ev.label} : <b style={{ color: ev.color }}>{fmtM(events[ev.id])}</b>
-              </span>
+              <span key={ev.id} style={{ fontSize: 12, color: C.muted }}>{ev.label} : <b style={{ color: ev.color }}>{fmtM(events[ev.id])}</b></span>
             ))}
           </div>
         )}
-
-        {/* Tableau des lectures */}
         {entries.length > 0 && (
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
             <thead>
               <tr style={{ background: C.surface2 }}>
                 {["Heure", "ET/AT (°F)", "Réf. (°F)", "Écart", "Airflow", "Puissance"].map(h => (
-                  <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: C.muted, fontSize: 10, fontWeight: 600, letterSpacing: "0.07em", borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                  <th key={h} style={{ padding: "6px 10px", textAlign: "left", color: C.muted, fontSize: 10, fontWeight: 600, borderBottom: `1px solid ${C.border}` }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -864,8 +826,6 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
             </tbody>
           </table>
         )}
-
-        {/* Notes et dégustation */}
         {(batch.notes_debut || batch.notes_fin || batch.degustation?.aromes) && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
             <div>
@@ -874,7 +834,7 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
             </div>
             {batch.degustation && (
               <div>
-                {batch.degustation.note && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Note :</b> {batch.degustation.note}/10</div>}
+                {batch.degustation.note   && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Note :</b> {batch.degustation.note}/10</div>}
                 {batch.degustation.aromes && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Arômes :</b> {batch.degustation.aromes}</div>}
                 {batch.degustation.saveur && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Saveur :</b> {batch.degustation.saveur}</div>}
                 {batch.degustation.corps  && <div style={{ color: C.muted, marginBottom: 3 }}><b style={{ color: C.cream }}>Corps :</b> {batch.degustation.corps}</div>}
@@ -884,15 +844,7 @@ const VueDetail = ({ batch: initialBatch, onBack, onSaveDegustation, onSaveBatch
           </div>
         )}
       </div>
-
-      {/* CSS IMPRESSION */}
-      <style>{`
-        @media print {
-          body { background: white !important; color: black !important; }
-          nav, button, [class*="navbar"] { display: none !important; }
-          * { color: black !important; background: white !important; border-color: #ccc !important; }
-        }
-      `}</style>
+      <style>{`@media print { body { background: white !important; color: black !important; } nav, button { display: none !important; } * { color: black !important; background: white !important; border-color: #ccc !important; } }`}</style>
     </div>
   );
 };
@@ -903,7 +855,7 @@ const VueParams = ({ curve, onSave }) => {
   const [saved,     setSaved]     = useState(false);
   const [selProfil, setSelProfil] = useState(null);
 
-  const load = p => setRows(p.points.map((pt, i) => ({ ...pt, _id: i })));
+  const load = p  => setRows(p.points.map((pt, i) => ({ ...pt, _id: i })));
   const upd  = (id, f, v) => setRows(prev => prev.map(p => p._id === id ? { ...p, [f]: parseFloat(v) || 0 } : p));
   const add  = () => { const l = [...rows].sort((a, b) => a.t - b.t).slice(-1)[0]; setRows(prev => [...prev, { t: l.t + 0.5, ref: l.ref, _id: Date.now() }]); };
   const rm   = id => setRows(prev => prev.filter(p => p._id !== id));
@@ -915,13 +867,9 @@ const VueParams = ({ curve, onSave }) => {
   return (
     <div style={{ padding: "24px", maxWidth: 820, margin: "0 auto" }}>
       <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, color: C.gold }}>Paramètres</div>
-      <div style={{ color: C.muted, fontSize: 12, marginBottom: 20, marginTop: 2 }}>Courbe de référence ET/AT (°F) · Tolérance : ±{TOL}°F</div>
-
-      {/* Profils prédéfinis */}
+      <div style={{ color: C.muted, fontSize: 12, marginBottom: 20, marginTop: 2 }}>Courbe de référence SR800 + tube (°F) · Tolérance : ±{TOL}°F</div>
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, marginBottom: 14 }}>
-        <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 12 }}>
-          6 PROFILS PRÉDÉFINIS — cliquer pour charger dans l'éditeur
-        </div>
+        <div style={{ fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 12 }}>6 PROFILS SR800 — cliquer pour charger</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
           {PROFILS.map(p => {
             const coul   = COULEURS.find(c => c.id === p.couleur_cible);
@@ -937,23 +885,17 @@ const VueParams = ({ curve, onSave }) => {
           })}
         </div>
       </div>
-
-      {/* Aperçu */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 8px 10px 4px", marginBottom: 14 }}>
-        <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12, marginBottom: 6 }}>Aperçu de la courbe dans l'éditeur</div>
+        <div style={{ fontSize: 10, color: C.muted, paddingLeft: 12, marginBottom: 6 }}>Aperçu</div>
         <RoastChart entries={[]} events={{}} curve={sorted} height={180} />
       </div>
-
-      {/* Tableau éditable */}
       <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden", marginBottom: 10 }}>
-        <div style={{ padding: "10px 14px", background: C.surface2, borderBottom: `1px solid ${C.border}`, fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>
-          PERSONNALISER — modifier les valeurs directement
-        </div>
+        <div style={{ padding: "10px 14px", background: C.surface2, borderBottom: `1px solid ${C.border}`, fontSize: 10, color: C.accent, fontWeight: 600, letterSpacing: "0.1em" }}>PERSONNALISER</div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: C.surface2 }}>
-              <th style={{ padding: "8px 14px", color: C.muted, fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", borderBottom: `1px solid ${C.border}`, textAlign: "left" }}>Temps (min)</th>
-              <th style={{ padding: "8px 14px", color: C.muted, fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", borderBottom: `1px solid ${C.border}`, textAlign: "left" }}>ET réf. (°F)</th>
+              <th style={{ padding: "8px 14px", color: C.muted, fontSize: 10, fontWeight: 600, borderBottom: `1px solid ${C.border}`, textAlign: "left" }}>Temps (min)</th>
+              <th style={{ padding: "8px 14px", color: C.muted, fontSize: 10, fontWeight: 600, borderBottom: `1px solid ${C.border}`, textAlign: "left" }}>ET réf. (°F)</th>
               <th style={{ width: 36, borderBottom: `1px solid ${C.border}` }}></th>
             </tr>
           </thead>
@@ -962,19 +904,15 @@ const VueParams = ({ curve, onSave }) => {
               <tr key={p._id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 ? C.surface2 : "transparent" }}>
                 <td style={{ padding: "4px 10px" }}><input type="number" value={p.t}   step="0.5" onChange={e => upd(p._id, "t",   e.target.value)} style={CINP} /></td>
                 <td style={{ padding: "4px 10px" }}><input type="number" value={p.ref}           onChange={e => upd(p._id, "ref", e.target.value)} style={CINP} /></td>
-                <td style={{ padding: "4px 8px", textAlign: "center" }}>
-                  <button onClick={() => rm(p._id)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, fontFamily: "inherit" }}>×</button>
-                </td>
+                <td style={{ padding: "4px 8px", textAlign: "center" }}><button onClick={() => rm(p._id)} style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14, fontFamily: "inherit" }}>×</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <button onClick={add} style={{ ...BTN(C.surface2, C.cream), border: `1px solid ${C.border}`, fontWeight: 400, fontSize: 12, padding: "8px 14px" }}>+ Point</button>
       </div>
-
       <button onClick={save} style={{ ...BTN(saved ? "#059669" : C.accent, "#fff"), width: "100%", padding: "12px", transition: "background 0.3s" }}>
         {saved ? "✓ Sauvegardé comme courbe active!" : "💾 Sauvegarder comme courbe active"}
       </button>
@@ -994,23 +932,40 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [detail,  setDetail]  = useState(null);
   const [loaded,  setLoaded]  = useState(false);
+  const [user,    setUser]    = useState(null);
 
   const timerRef = useRef(null);
   const startRef = useRef(null);
 
+  // Auth listener
   useEffect(() => {
-    if (!user) return
-    console.log('user connected:', user.id)
-    ;(async () => {
-      const b = await loadBatches().catch(e => { console.log('catch:', e); return [] })
-      console.log('batches loaded:', b)
-      if (b?.length) setBatches(b)
-      setLoaded(true)
-    })()
-  }, [user])
-      return () => clearInterval(timerRef.current);
-    }, []);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => { subscription.unsubscribe(); clearInterval(timerRef.current); };
+  }, []);
 
+  // Charger données quand connecté
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const [b, c, a] = await Promise.all([
+        loadBatches().catch(e => { console.error(e); return []; }),
+        loadRefCurve().catch(() => null),
+        sGet(SK.active),
+      ]);
+      if (b?.length) setBatches(b);
+      if (c) setCurve(c);
+      if (a?.batch) {
+        setActive(a.batch); setEntries(a.entries || []);
+        setEvents(a.events || {}); setElapsed(a.elapsed || 0);
+        setView("journal");
+      }
+      setLoaded(true);
+    })();
+  }, [user]);
+
+  // Sauvegarder session active
   useEffect(() => {
     if (!loaded || !active) return;
     sSet(SK.active, { batch: active, entries, events, elapsed });
@@ -1037,26 +992,30 @@ export default function App() {
 
   const handleSave = async finData => {
     const done = { ...active, ...finData, readings: entries, events, duree_total: elapsed, statut: "termine" };
-    const next  = [...batches.filter(b => b.id !== active.id), done];
-    setBatches(next); await sSet(SK.batches, next); await sDel(SK.active);
+    await saveBatch(done, entries, events);
+    const next = await loadBatches().catch(() => batches);
+    setBatches(next);
+    await sDel(SK.active);
     setActive(null); setEntries([]); setEvents({}); setElapsed(0); setRunning(false); setView("list");
   };
 
   const handleSaveDegustation = async (batchId, deg) => {
+    await saveDegustation(batchId, deg);
     const next = batches.map(b => b.id === batchId ? { ...b, degustation: deg } : b);
-    setBatches(next); await sSet(SK.batches, next);
+    setBatches(next);
     setDetail(prev => prev?.id === batchId ? { ...prev, degustation: deg } : prev);
-  }
+  };
 
-  const handleSaveBatchInfo = async (updated) => {
-  const next = batches.map(b => b.id === updated.id ? updated : b)
-  setBatches(next)
-  await sSet(SK.batches, next)
-  setDetail(updated) 
-};
+  const handleSaveBatchInfo = async updated => {
+    await saveBatch(updated, updated.readings || [], updated.events || {});
+    const next = batches.map(b => b.id === updated.id ? updated : b);
+    setBatches(next);
+    setDetail(updated);
+  };
 
-  const handleSaveCurve = async c => { setCurve(c); await sSet(SK.ref, c); };
+  const handleSaveCurve = async c => { setCurve(c); await saveRefCurve(c); };
 
+  if (!user) return <VueLogin />;
   if (!loaded) return (
     <div style={{ background: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'IBM Plex Mono', monospace", color: C.muted }}>Chargement…</div>
   );
@@ -1073,10 +1032,10 @@ export default function App() {
         select { color-scheme: dark; }
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: ${C.border}; border-radius: 2px; }
       `}</style>
-
-      {/* NAVBAR */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "10px 20px", display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>☕ RoastLog</div>
+        <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 700, color: C.gold, flex: 1 }}>
+          ☕ RoastLog <span style={{ color: C.muted, fontSize: 13, fontWeight: 400 }}>· Le Brûleur de l'est</span>
+        </div>
         {[{ id: "list", label: "Batches", ico: "☕" }, { id: "settings", label: "Paramètres", ico: "⚙" }].map(n => (
           <button key={n.id} onClick={() => setView(n.id)}
             style={{ background: view === n.id ? C.accent + "22" : "transparent", color: view === n.id ? C.gold : C.muted, border: `1px solid ${view === n.id ? C.accent : "transparent"}`, padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>
@@ -1089,13 +1048,16 @@ export default function App() {
             🔥 {active.batchNum} {running ? `· ${fmtS(elapsed)}` : "· En pause"}
           </button>
         )}
+        <button onClick={() => supabase.auth.signOut()}
+          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>
+          Déconnexion
+        </button>
       </div>
-
-      {view === "list"    && <VueListe    batches={batches} onNew={() => setView("create")} onOpen={handleOpen} />}
-      {view === "create"  && <VueCreer   batches={batches} onStart={handleCreate} onCancel={() => setView("list")} />}
-      {view === "journal" && active && <VueJournal batch={active} entries={entries} events={events} setEntries={setEntries} setEvents={setEvents} elapsed={elapsed} running={running} onStart={startTimer} onPause={pauseTimer} onFin={handleFin} curve={curve} />}
-      {view === "fin"     && active && <VueFin batch={active} entries={entries} events={events} elapsed={elapsed} curve={curve} onSave={handleSave} onBack={() => { startTimer(); setView("journal"); }} />}
-      {view === "detail"  && detail && <VueDetail batch={detail} curve={curve} onBack={() => { setDetail(null); setView("list"); }} onSaveDegustation={handleSaveDegustation} onSaveBatchInfo={handleSaveBatchInfo} />}
+      {view === "list"     && <VueListe    batches={batches} onNew={() => setView("create")} onOpen={handleOpen} />}
+      {view === "create"   && <VueCreer   batches={batches} onStart={handleCreate} onCancel={() => setView("list")} />}
+      {view === "journal"  && active && <VueJournal batch={active} entries={entries} events={events} setEntries={setEntries} setEvents={setEvents} elapsed={elapsed} running={running} onStart={startTimer} onPause={pauseTimer} onFin={handleFin} curve={curve} />}
+      {view === "fin"      && active && <VueFin batch={active} entries={entries} events={events} elapsed={elapsed} curve={curve} onSave={handleSave} onBack={() => { startTimer(); setView("journal"); }} />}
+      {view === "detail"   && detail && <VueDetail batch={detail} curve={curve} onBack={() => { setDetail(null); setView("list"); }} onSaveDegustation={handleSaveDegustation} onSaveBatchInfo={handleSaveBatchInfo} />}
       {view === "settings"           && <VueParams curve={curve} onSave={handleSaveCurve} />}
     </div>
   );
